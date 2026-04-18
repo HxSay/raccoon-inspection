@@ -2,6 +2,7 @@ package com.raccoon.cloud.system.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.raccoon.cloud.system.model.User;
+import com.raccoon.cloud.system.model.dto.RegisterRequest;
 import com.raccoon.cloud.system.model.dto.UserQueryRequest;
 import com.raccoon.cloud.system.model.dto.UserRequest;
 
@@ -12,6 +13,11 @@ public interface UserService {
      * 用户登录
      */
     User login(String username, String password);
+
+    /**
+     * 用户注册
+     */
+    void register(RegisterRequest request);
 
     /**
      * 获取当前用户信息

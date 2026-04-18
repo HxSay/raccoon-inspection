@@ -1,6 +1,7 @@
 package com.raccoon.cloud.system.service;
 
 import com.raccoon.cloud.system.model.dto.LoginRequest;
+import com.raccoon.cloud.system.model.dto.RegisterRequest;
 import com.raccoon.common.result.HxResult;
 
 public interface AuthService {
@@ -8,6 +9,11 @@ public interface AuthService {
      * 用户登录
      */
     HxResult<?> login(LoginRequest request);
+
+    /**
+     * 用户注册
+     */
+    HxResult<?> register(RegisterRequest request);
 
     /**
      * 刷新Token

@@ -1,6 +1,7 @@
 package com.raccoon.cloud.system.controller;
 
 import com.raccoon.cloud.system.model.dto.LoginRequest;
+import com.raccoon.cloud.system.model.dto.RegisterRequest;
 import com.raccoon.cloud.system.service.AuthService;
 import com.raccoon.common.result.HxResult;
 import io.swagger.v3.oas.annotations.Operation;
@@ -25,6 +26,12 @@ public class AuthController {
     @Operation(summary = "用户登录", description = "支持用户名/手机号+密码登录")
     public HxResult<?> login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/register")
+    @Operation(summary = "用户注册", description = "用户注册接口")
+    public HxResult<?> register(@Valid @RequestBody RegisterRequest request) {
+        return authService.register(request);
     }
 
     @PostMapping("/refresh")

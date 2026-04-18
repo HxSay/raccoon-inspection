@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.raccoon.cloud.system.mapper.UserMapper;
 import com.raccoon.cloud.system.model.User;
+import com.raccoon.cloud.system.model.dto.RegisterRequest;
 import com.raccoon.cloud.system.model.dto.UserQueryRequest;
 import com.raccoon.cloud.system.model.dto.UserRequest;
 import com.raccoon.cloud.system.service.UserService;
@@ -144,5 +145,31 @@ public class UserServiceImpl implements UserService {
         wrapper.eq("phone", phone);
         wrapper.eq("del_flag", 0);
         return userMapper.selectOne(wrapper);
+    }
+
+    @Override
+    public void register(RegisterRequest request) {
+        // 检查用户名是否已存在
+        if (getByUsername(request.getUsername()) != null) {
+            throw new RuntimeException("用户名已存在");
+        }
+
+        // 检查手机号是否已存在
+        if (getByPhone(request.getPhone()) != null) {
+            throw new RuntimeException("手机号已被注册");
+        }
+
+        // 创建用户
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setPhone(request.getPhone());
+        user.setEmail(request.getEmail());
+        // 设置默认值
+        user.setStatus(1);
+        user.setDelFlag(0);
+        user.setGender(0);
+        user.setUserType(2);
+        userMapper.insert(user);
     }
 }

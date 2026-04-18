@@ -5,6 +5,15 @@ export interface LoginRequest {
   password: string
 }
 
+export interface RegisterRequest {
+  username: string
+  password: string
+  confirmPassword: string
+  phone: string
+  email: string
+  agree: boolean
+}
+
 export interface LoginResponse {
   id: number
   username: string
@@ -19,7 +28,7 @@ export interface LoginResponse {
 
 export function login(data: LoginRequest) {
   return request({
-    url: '/system/auth/login',
+    url: '/auth/login',
     method: 'post',
     data
   })
@@ -27,21 +36,29 @@ export function login(data: LoginRequest) {
 
 export function refreshToken() {
   return request({
-    url: '/system/auth/refresh',
+    url: '/auth/refresh',
     method: 'post'
   })
 }
 
 export function logout() {
   return request({
-    url: '/system/auth/logout',
+    url: '/auth/logout',
     method: 'post'
   })
 }
 
 export function getCurrentUserInfo() {
   return request({
-    url: '/system/auth/current',
+    url: '/auth/current',
     method: 'post'
+  })
+}
+
+export function register(data: RegisterRequest) {
+  return request({
+    url: '/auth/register',
+    method: 'post',
+    data
   })
 }

@@ -3,6 +3,7 @@ package com.raccoon.cloud.system.service.impl;
 import com.raccoon.cloud.system.model.LoginLog;
 import com.raccoon.cloud.system.model.User;
 import com.raccoon.cloud.system.model.dto.LoginRequest;
+import com.raccoon.cloud.system.model.dto.RegisterRequest;
 import com.raccoon.cloud.system.mapper.LoginLogMapper;
 import com.raccoon.cloud.system.service.AuthService;
 import com.raccoon.cloud.system.service.UserService;
@@ -70,6 +71,33 @@ public class AuthServiceImpl implements AuthService {
     public HxResult<?> getCurrentUserInfo() {
         User user = userService.getCurrentUser();
         return HxResult.success(user);
+    }
+
+    @Override
+    public HxResult<?> register(RegisterRequest request) {
+        try {
+            // 检查密码是否一致
+            if (!request.getPassword().equals(request.getConfirmPassword())) {
+                return HxResult.fail("两次输入的密码不一致");
+            }
+
+            // 检查是否同意隐私协议
+            if (!request.isAgree()) {
+                return HxResult.fail("请同意隐私协议");
+            }
+
+            // 调用UserService进行注册
+            userService.register(request);
+
+            // 记录注册日志
+            recordLoginLog(request.getUsername(), 1, "注册成功");
+
+            return HxResult.success("注册成功");
+        } catch (Exception e) {
+            // 记录注册失败日志
+            recordLoginLog(request.getUsername(), 0, "注册失败: " + e.getMessage());
+            return HxResult.fail("注册失败: " + e.getMessage());
+        }
     }
 
     /**
