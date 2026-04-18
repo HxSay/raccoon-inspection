@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: raccoon-cloud-gateway  # 网关服务名称，注册到Nacos的名字
+  config:
+    import: nacos:localhost:8848  # 从Nacos配置中心加载配置
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848  # Nacos服务注册中心地址
+      config:
+        server-addr: localhost:8848  # Nacos配置中心地址
+        file-extension: yml          # 配置文件格式为yml
+    gateway:
+      routes:  # 网关路由核心配置（请求转发规则）
+        - id: agent-route                # 路由唯一标识，不能重复
+          uri: lb://raccoon-cloud-agent  # 目标微服务地址，lb=负载均衡
+          predicates:                    # 断言：请求匹配规则
+            - Path=/api/agent/**         # 匹配以 /api/agent/ 开头的所有请求
+          filters:                       # 过滤器：请求处理规则
+            - StripPrefix=2              # 截取路径前2段（/api/agent），只保留后面部分转发
+
+        - id: knowledge-route
+          uri: lb://raccoon-cloud-knowledge
+          predicates:
+            - Path=/api/knowledge/**
+          filters:
+            - StripPrefix=2
+
+        - id: data-route
+          uri: lb://raccoon-cloud-data
+          predicates:
+            - Path=/api/data/**
+          filters:
+            - StripPrefix=2
+
+        - id: workflow-route
+          uri: lb://raccoon-cloud-workflow
+          predicates:
+            - Path=/api/workflow/**
+          filters:
+            - StripPrefix=2
+
+        - id: device-route
+          uri: lb://raccoon-cloud-device
+          predicates:
+            - Path=/api/device/**
+          filters:
+            - StripPrefix=2
+
+        - id: ai-model-route
+          uri: lb://raccoon-cloud-ai-model
+          predicates:
+            - Path=/api/ai-model/**
+          filters:
+            - StripPrefix=2
+        - id: system-route
+          uri: lb://raccoon-cloud-system
+          predicates:
+            - Path=/api/system/**
+          filters:
+            - StripPrefix=2
+
+server:
+  port: 8080  # 网关启动端口，所有外部请求访问8080

@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: raccoon-ui
+
+server:
+  port: 8087
