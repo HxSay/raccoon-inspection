@@ -38,6 +38,18 @@ const routes: RouteRecordRaw[] = [
         name: 'Role',
         component: () => import('@/views/role/index.vue'),
         meta: { title: '角色管理', icon: 'UserFilled', roles: ['admin'] }
+      },
+      {
+        path: '/dict/type',
+        name: 'DictType',
+        component: () => import('@/views/dict/type/index.vue'),
+        meta: { title: '字典类型管理', icon: 'Document', roles: ['admin'] }
+      },
+      {
+        path: '/dict/data',
+        name: 'DictData',
+        component: () => import('@/views/dict/data/index.vue'),
+        meta: { title: '字典数据管理', icon: 'Collection', roles: ['admin'] }
       }
     ]
   }
@@ -48,7 +60,7 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   const userStore = useUserStore()
   const title = to.meta.title as string
 
