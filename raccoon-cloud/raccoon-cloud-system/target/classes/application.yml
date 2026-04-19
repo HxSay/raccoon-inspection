@@ -18,5 +18,10 @@ spring:
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+jwt:
+  secret: raccoon-cloud-system-secret-key-2026
+  expire: 7200
+  refreshExpire: 86400
+
 
 

@@ -43,7 +43,7 @@ export interface PageResponse<T> {
 
 export function getUserPage(data: UserQueryRequest) {
   return request({
-    url: '/system/user/page',
+    url: '/user/page',
     method: 'post',
     data
   })
@@ -51,7 +51,7 @@ export function getUserPage(data: UserQueryRequest) {
 
 export function addUser(data: UserRequest) {
   return request({
-    url: '/system/user/add',
+    url: '/user/add',
     method: 'post',
     data
   })
@@ -59,7 +59,7 @@ export function addUser(data: UserRequest) {
 
 export function updateUser(data: UserRequest) {
   return request({
-    url: '/system/user/update',
+    url: '/user/update',
     method: 'post',
     data
   })
@@ -67,7 +67,7 @@ export function updateUser(data: UserRequest) {
 
 export function updateUserStatus(id: number, status: number) {
   return request({
-    url: '/system/user/status',
+    url: '/user/status',
     method: 'post',
     params: { id, status }
   })
@@ -75,7 +75,7 @@ export function updateUserStatus(id: number, status: number) {
 
 export function resetUserPassword(id: number) {
   return request({
-    url: '/system/user/resetPassword',
+    url: '/user/resetPassword',
     method: 'post',
     params: { id }
   })
@@ -83,7 +83,7 @@ export function resetUserPassword(id: number) {
 
 export function deleteUser(id: number) {
   return request({
-    url: '/system/user/delete',
+    url: '/user/delete',
     method: 'post',
     params: { id }
   })

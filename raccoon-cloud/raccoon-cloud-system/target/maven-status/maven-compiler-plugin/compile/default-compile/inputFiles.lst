@@ -1,4 +1,5 @@
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\config\MyBatisPlusConfig.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\config\PasswordEncoderConfig.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\controller\AuthController.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\controller\RoleController.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\controller\UserController.java
@@ -19,6 +20,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-sy
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\model\RolePermissionRel.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\model\User.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\model\UserRoleRel.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\security\JwtAuthenticationFilter.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\security\SecurityConfig.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\security\UserDetailsServiceImpl.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\service\AuthService.java
@@ -28,3 +30,4 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-sy
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\service\RoleService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\service\UserService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\SystemApplication.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\utils\JwtUtil.java

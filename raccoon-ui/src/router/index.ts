@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
 const routes: RouteRecordRaw[] = [
@@ -30,13 +31,13 @@ const routes: RouteRecordRaw[] = [
         path: '/user',
         name: 'User',
         component: () => import('@/views/user/index.vue'),
-        meta: { title: '用户管理', icon: 'User' }
+        meta: { title: '用户管理', icon: 'User', roles: ['admin'] }
       },
       {
         path: '/role',
         name: 'Role',
         component: () => import('@/views/role/index.vue'),
-        meta: { title: '角色管理', icon: 'UserFilled' }
+        meta: { title: '角色管理', icon: 'UserFilled', roles: ['admin'] }
       }
     ]
   }
@@ -55,13 +56,35 @@ router.beforeEach((to, from, next) => {
     document.title = `${title} - Raccoon Inspection`
   }
 
-  if (to.meta.requiresAuth !== false && !userStore.isLoggedIn()) {
-    next('/login')
-  } else if (to.path === '/login' && userStore.isLoggedIn()) {
-    next('/')
-  } else {
-    next()
+  // 检查是否需要认证
+  if (to.meta.requiresAuth !== false) {
+    // 检查用户是否登录
+    if (!userStore.isLoggedIn()) {
+      // 记录回跳地址
+      const redirect = to.fullPath
+      next(`/login?redirect=${encodeURIComponent(redirect)}`)
+      return
+    }
+
+    // 检查用户角色权限
+    const roles = to.meta.roles as string[]
+    if (roles && roles.length > 0) {
+      const hasRole = roles.some(role => userStore.hasRole(role))
+      if (!hasRole) {
+        ElMessage.error('没有权限访问该资源')
+        next('/')
+        return
+      }
+    }
   }
+
+  // 如果用户已登录且访问登录页，跳转到首页
+  if (to.path === '/login' && userStore.isLoggedIn()) {
+    next('/')
+    return
+  }
+
+  next()
 })
 
 export default router
