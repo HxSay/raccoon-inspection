@@ -17,7 +17,7 @@ export const useUserStore = defineStore('user', () => {
 
   const login = async (username: string, password: string) => {
     const res = await loginApi({ username, password })
-    setToken(res.data.token || '')
+    setToken('session-token') // 为了兼容前端逻辑，设置一个非空的token值
     setUserInfo(res.data)
     return res
   }
@@ -46,7 +46,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const isLoggedIn = () => {
-    return !!token.value
+    return !!token.value || !!userInfo.value
   }
 
   return {
