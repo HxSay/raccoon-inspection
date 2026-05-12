@@ -37,18 +37,37 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         }
 
         List<GrantedAuthority> authorities = new ArrayList<>();
-        for (String code : roleService.getLoginRoleCodes(user)) {
-            if (!StringUtils.hasText(code)) {
-                continue;
+        try {
+            for (String code : roleService.getLoginRoleCodes(user)) {
+                if (!StringUtils.hasText(code)) {
+                    continue;
+                }
+                String c = code.trim();
+                authorities.add(new SimpleGrantedAuthority(c.startsWith("ROLE_") ? c : "ROLE_" + c.toUpperCase().replace('-', '_')));
             }
-            String c = code.trim();
-            authorities.add(new SimpleGrantedAuthority(c.startsWith("ROLE_") ? c : "ROLE_" + c.toUpperCase().replace('-', '_')));
+        } catch (Exception e) {
+            log.warn("加载用户角色失败 userId={}: {}", user.getId(), e.getMessage());
         }
+        if (authorities.isEmpty() && isBuiltInPrivileged(user)) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+        }
+
+        // JWT 无状态接口不校验密码，但 User 构造器不允许 password 为 null
+        String password = StringUtils.hasText(user.getPasswordHash()) ? user.getPasswordHash() : "{noop}N/A";
 
         return new org.springframework.security.core.userdetails.User(
                 user.getUsername(),
-                user.getPasswordHash(),
+                password,
                 authorities
         );
+    }
+
+    /** 与 RoleServiceImpl 约定一致：2 = B 端管理员；root 为平台账号 */
+    private static boolean isBuiltInPrivileged(User u) {
+        if (u.getUsername() != null && "root".equalsIgnoreCase(u.getUsername().trim())) {
+            return true;
+        }
+        Integer t = u.getUserType();
+        return t != null && t == 2;
     }
 }

@@ -39,7 +39,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         userDetails, null, userDetails.getAuthorities());
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } catch (Exception e) {
-                log.error("Token验证失败: {}", e.getMessage());
+                log.error("Token验证失败: {} — {}", e.getClass().getSimpleName(), e.getMessage());
             }
         }
 

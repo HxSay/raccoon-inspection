@@ -21,27 +21,29 @@ service.interceptors.request.use(
     // 检查是否需要添加 token
     const url = config.url || ''
     const shouldAddToken = !noTokenPaths.some(path => url.includes(path))
-    
-    console.log('Request URL:', url)
-    console.log('Should add token:', shouldAddToken)
-    console.log('Current token:', userStore.token)
-    
-    if (shouldAddToken && userStore.token) {
+
+    let tokenHeader =
+      userStore.token?.trim() || (typeof localStorage !== 'undefined' ? localStorage.getItem('token')?.trim() : '') || ''
+
+    if (shouldAddToken && tokenHeader) {
       // 检查 token 是否即将过期
-        if (userStore.isTokenExpiringSoon()) {
-          // 如果没有正在进行的刷新 token 请求，发起新的请求
-          if (!refreshTokenPromise) {
-            refreshTokenPromise = userStore.refreshAccessToken()
-          }
-          
-          // 等待刷新 token 完成
-          await refreshTokenPromise
-          refreshTokenPromise = null
+      if (userStore.isTokenExpiringSoon()) {
+        // 如果没有正在进行的刷新 token 请求，发起新的请求
+        if (!refreshTokenPromise) {
+          refreshTokenPromise = userStore.refreshAccessToken()
         }
-      
-      // 添加 token 到请求头
-      config.headers.Authorization = `Bearer ${userStore.token}`
-      console.log('Added token to request:', config.headers.Authorization)
+
+        // 等待刷新 token 完成
+        await refreshTokenPromise
+        refreshTokenPromise = null
+        tokenHeader =
+          userStore.token?.trim() || (typeof localStorage !== 'undefined' ? localStorage.getItem('token')?.trim() : '') || ''
+      }
+
+      // 添加 token 到请求头（Pinia 未就绪时回退读 localStorage，避免未带 JWT 被后端 403）
+      if (tokenHeader) {
+        config.headers.Authorization = `Bearer ${tokenHeader}`
+      }
     }
     
     return config
