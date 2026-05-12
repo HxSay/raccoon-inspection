@@ -67,6 +67,40 @@ const routes: RouteRecordRaw[] = [
         name: 'CmmsMaintenance',
         component: () => import('@/views/cmms/maintenance/index.vue'),
         meta: { title: '设备维护工单', icon: 'Tools' }
+      },
+      {
+        path: '/cmms/inspection/work-order/form',
+        name: 'InspectionWorkOrderForm',
+        component: () => import('@/views/cmms/inspection/work-order/Form.vue'),
+        meta: { title: '新建巡检工单', hidden: true }
+      },
+      {
+        path: '/cmms/inspection/work-order/execute/:orderId',
+        name: 'InspectionWorkOrderExecute',
+        component: () => import('@/views/cmms/inspection/work-order/Execute.vue'),
+        meta: { title: '巡检执行', hidden: true }
+      },
+      {
+        path: '/cmms/inspection/work-order/detail/:orderId',
+        name: 'InspectionWorkOrderDetail',
+        component: () => import('@/views/cmms/inspection/work-order/Detail.vue'),
+        meta: { title: '巡检结果', hidden: true }
+      },
+      {
+        path: '/cmms/grid-inspection-wo',
+        redirect: '/cmms/inspection?tab=order'
+      },
+      {
+        path: '/cmms/grid-inspection-wo/form',
+        redirect: '/cmms/inspection/work-order/form'
+      },
+      {
+        path: '/cmms/grid-inspection-wo/execute/:orderId',
+        redirect: (to) => ({ path: `/cmms/inspection/work-order/execute/${to.params.orderId}` })
+      },
+      {
+        path: '/cmms/grid-inspection-wo/detail/:orderId',
+        redirect: (to) => ({ path: `/cmms/inspection/work-order/detail/${to.params.orderId}` })
       }
     ]
   }

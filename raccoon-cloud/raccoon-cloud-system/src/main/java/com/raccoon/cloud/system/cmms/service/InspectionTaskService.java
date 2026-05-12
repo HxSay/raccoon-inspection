@@ -72,6 +72,9 @@ public class InspectionTaskService {
         if (req.getExecUserId() != null) {
             w.eq("exec_user_id", req.getExecUserId());
         }
+        if (req.getPlanId() != null) {
+            w.eq("plan_id", req.getPlanId());
+        }
         w.orderByDesc("plan_execute_time", "id");
         Page<InspectionTask> p = new Page<>(req.getPage(), req.getSize());
         return taskMapper.selectPage(p, w);

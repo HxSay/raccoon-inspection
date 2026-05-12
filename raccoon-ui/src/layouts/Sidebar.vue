@@ -11,7 +11,7 @@ const router = useRouter()
 
 const menuList = computed(() => {
   const children = router.getRoutes().find(r => r.path === '/')?.children || []
-  return children.filter(item => item.meta && item.meta.title)
+  return children.filter(item => item.meta && item.meta.title && !item.meta.hidden)
 })
 
 const activeMenu = computed(() => {

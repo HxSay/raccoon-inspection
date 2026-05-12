@@ -1,6 +1,7 @@
 package com.raccoon.cloud.system.cmms.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.raccoon.cloud.system.cmms.dto.InspectionDispatchFromPlanRequest;
 import com.raccoon.cloud.system.cmms.dto.InspectionPlanPageRequest;
 import com.raccoon.cloud.system.cmms.dto.InspectionTaskPageRequest;
 import com.raccoon.cloud.system.cmms.dto.TaskCheckInRequest;
@@ -12,9 +13,11 @@ import com.raccoon.cloud.system.cmms.entity.InspectionTask;
 import com.raccoon.cloud.system.cmms.service.InspectionPlanService;
 import com.raccoon.cloud.system.cmms.service.InspectionRecordService;
 import com.raccoon.cloud.system.cmms.service.InspectionTaskService;
+import com.raccoon.cloud.system.cmms.service.InspectionWorkOrderService;
 import com.raccoon.common.result.HxResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,19 +27,22 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/cmms/inspection")
-@Tag(name = "CMMS-巡检管理", description = "计划、任务、记录")
+@Tag(name = "CMMS-巡检管理", description = "计划、任务、记录、按计划派发巡检工单")
 public class CmmsInspectionController {
 
     private final InspectionPlanService inspectionPlanService;
     private final InspectionTaskService inspectionTaskService;
     private final InspectionRecordService inspectionRecordService;
+    private final InspectionWorkOrderService inspectionWorkOrderService;
 
     public CmmsInspectionController(InspectionPlanService inspectionPlanService,
                                     InspectionTaskService inspectionTaskService,
-                                    InspectionRecordService inspectionRecordService) {
+                                    InspectionRecordService inspectionRecordService,
+                                    InspectionWorkOrderService inspectionWorkOrderService) {
         this.inspectionPlanService = inspectionPlanService;
         this.inspectionTaskService = inspectionTaskService;
         this.inspectionRecordService = inspectionRecordService;
+        this.inspectionWorkOrderService = inspectionWorkOrderService;
     }
 
     @PostMapping("/plan/page")
@@ -67,6 +73,17 @@ public class CmmsInspectionController {
             int n = inspectionTaskService.generateTasksFromPlan(planId);
             return HxResult.success("已生成 " + n + " 条任务", n);
         } catch (Exception e) {
+            return HxResult.fail(e.getMessage());
+        }
+    }
+
+    @PostMapping("/workOrder/dispatchFromPlan")
+    @Operation(summary = "按计划派发巡检工单", description = "为待执行且未绑定工单的任务各建一单并自动下发到任务执行人")
+    public HxResult<Integer> workOrderDispatchFromPlan(@Valid @RequestBody InspectionDispatchFromPlanRequest body) {
+        try {
+            int n = inspectionWorkOrderService.dispatchFromPlan(body.getPlanId());
+            return HxResult.success("已派发 " + n + " 张工单", n);
+        } catch (IllegalArgumentException | IllegalStateException e) {
             return HxResult.fail(e.getMessage());
         }
     }

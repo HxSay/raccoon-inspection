@@ -24,6 +24,9 @@ spring:
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+
 jwt:
   secret: raccoon-cloud-system-secret-key-2026
   expire: 7200

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import WorkOrderList from './work-order/List.vue'
 import {
   cmmsPlanPage,
   cmmsPlanSave,
   cmmsPlanDelete,
   cmmsPlanGenerateTasks,
+  cmmsDispatchWorkOrdersFromPlan,
   cmmsTaskPage,
   cmmsTaskSave,
   cmmsTaskDelete,
@@ -20,6 +23,9 @@ import {
   type InspectionPoint
 } from '@/api/cmms'
 import { getUserPage, type UserResponse } from '@/api/user'
+
+const route = useRoute()
+const router = useRouter()
 
 const tab = ref('plan')
 
@@ -41,7 +47,7 @@ const deviceOptions = ref<DeviceInfo[]>([])
 const userOptions = ref<UserResponse[]>([])
 const selectedDeviceIds = ref<number[]>([])
 
-const taskQuery = ref({ page: 1, size: 10, status: undefined as number | undefined })
+const taskQuery = ref({ page: 1, size: 10, status: undefined as number | undefined, planId: undefined as number | undefined })
 const taskList = ref<InspectionTask[]>([])
 const taskTotal = ref(0)
 
@@ -95,6 +101,10 @@ const userSelectLabel = (u: UserResponse) => {
 }
 
 onMounted(async () => {
+  const qtab = route.query.tab as string
+  if (qtab === 'order' || qtab === 'plan' || qtab === 'task') {
+    tab.value = qtab
+  }
   await loadDevices()
   await loadUsers()
   loadPlans()
@@ -133,7 +143,7 @@ const openPlan = (row?: InspectionPlan) => {
       deviceIds: '[]',
       cycleType: 1,
       cycleValue: 1,
-      execUserId: 1,
+      execUserId: userOptions.value[0]?.id ?? 1,
       startTime: local,
       status: 1
     }
@@ -176,6 +186,18 @@ const genTasks = async (id: number) => {
   }
 }
 
+const dispatchWorkOrders = async (planId: number) => {
+  await ElMessageBox.confirm(
+    '将为本计划下「待执行且未绑定工单」的每条巡检任务生成一张巡检工单，并自动下发到任务执行人。是否继续？',
+    '派发巡检工单'
+  )
+  const res: any = await cmmsDispatchWorkOrdersFromPlan(planId)
+  if (res.code === 200) {
+    ElMessage.success(res.msg || '派发成功')
+    loadTasks()
+  }
+}
+
 const openTask = (row?: InspectionTask) => {
   if (!row) {
     const now = new Date()
@@ -197,7 +219,8 @@ const openTask = (row?: InspectionTask) => {
       taskName: '手动巡检任务',
       execUserId: userOptions.value[0]?.id ?? 1,
       planExecuteTime: local,
-      status: 0
+      status: 0,
+      planId: undefined
     }
   } else {
     taskForm.value = { ...row }
@@ -211,7 +234,8 @@ const taskForm = ref<InspectionTask>({
   taskName: '',
   execUserId: 1,
   planExecuteTime: '',
-  status: 0
+  status: 0,
+  planId: undefined
 })
 
 const saveTask = async () => {
@@ -263,7 +287,20 @@ const viewRecords = async (taskId: number) => {
 watch(tab, (v) => {
   if (v === 'plan') loadPlans()
   if (v === 'task') loadTasks()
+  if (route.query.tab !== v) {
+    router.replace({ path: '/cmms/inspection', query: { tab: v } })
+  }
 })
+
+watch(
+  () => route.query.tab,
+  (v) => {
+    const s = v as string
+    if ((s === 'order' || s === 'plan' || s === 'task') && tab.value !== s) {
+      tab.value = s
+    }
+  }
+)
 </script>
 
 <template>
@@ -293,10 +330,11 @@ watch(tab, (v) => {
           <el-table-column prop="status" label="状态" width="80">
             <template #default="{ row }">{{ row.status === 1 ? '启用' : '停用' }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="260" fixed="right">
+          <el-table-column label="操作" width="340" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openPlan(row)">编辑</el-button>
               <el-button link type="success" @click="genTasks(row.id)">生成任务</el-button>
+              <el-button link type="warning" @click="dispatchWorkOrders(row.id!)">派发工单</el-button>
               <el-button link type="danger" @click="delPlan(row.id)">删除</el-button>
             </template>
           </el-table-column>
@@ -312,6 +350,11 @@ watch(tab, (v) => {
 
       <el-tab-pane label="巡检任务" name="task">
         <el-form :inline="true">
+          <el-form-item label="计划">
+            <el-select v-model="taskQuery.planId" clearable placeholder="全部" style="width: 200px">
+              <el-option v-for="p in planList" :key="p.id!" :label="p.planName" :value="p.id!" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="状态">
             <el-select v-model="taskQuery.status" clearable placeholder="全部" style="width: 120px">
               <el-option v-for="o in taskStatus" :key="o.value" :label="o.label" :value="o.value" />
@@ -324,6 +367,19 @@ watch(tab, (v) => {
         </el-form>
         <el-table :data="taskList" border stripe>
           <el-table-column prop="taskCode" label="任务单号" width="170" />
+          <el-table-column prop="planId" label="计划ID" width="90" />
+          <el-table-column label="巡检工单" width="100">
+            <template #default="{ row }">
+              <el-button
+                v-if="row.workOrderId"
+                link
+                type="primary"
+                @click="router.push(`/cmms/inspection/work-order/detail/${row.workOrderId}`)"
+                >查看</el-button
+              >
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="taskName" label="任务名称" min-width="160" />
           <el-table-column prop="deviceId" label="设备ID" width="90" />
           <el-table-column prop="planExecuteTime" label="计划执行时间" width="170" />
@@ -348,6 +404,10 @@ watch(tab, (v) => {
           @current-change="loadTasks"
         />
       </el-tab-pane>
+
+      <el-tab-pane label="巡检工单" name="order">
+        <WorkOrderList />
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="planDialog" title="巡检计划" width="640px" destroy-on-close>
@@ -366,7 +426,11 @@ watch(tab, (v) => {
           </el-radio-group>
         </el-form-item>
         <el-form-item label="周期值"><el-input-number v-model="planForm.cycleValue" :min="1" /></el-form-item>
-        <el-form-item label="执行人用户ID"><el-input-number v-model="planForm.execUserId" :min="1" /></el-form-item>
+        <el-form-item label="执行人">
+          <el-select v-model="planForm.execUserId" filterable placeholder="选择执行人" style="width: 100%">
+            <el-option v-for="u in userOptions" :key="u.id" :label="userSelectLabel(u)" :value="u.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="生效时间">
           <el-date-picker v-model="planForm.startTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" />
         </el-form-item>
@@ -399,6 +463,11 @@ watch(tab, (v) => {
           </el-select>
         </el-form-item>
         <el-form-item label="任务名称"><el-input v-model="taskForm.taskName" /></el-form-item>
+        <el-form-item label="关联计划">
+          <el-select v-model="taskForm.planId" clearable filterable placeholder="可选，绑定巡检计划" style="width: 100%">
+            <el-option v-for="p in planList" :key="p.id!" :label="p.planName" :value="p.id!" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="执行人">
           <el-select v-model="taskForm.execUserId" filterable placeholder="选择执行人" style="width: 100%">
             <el-option v-for="u in userOptions" :key="u.id" :label="userSelectLabel(u)" :value="u.id" />

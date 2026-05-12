@@ -10,4 +10,5 @@ public class InspectionTaskPageRequest extends CmmsPageRequest {
     private Integer status;
     private Long deviceId;
     private Long execUserId;
+    private Long planId;
 }

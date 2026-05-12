@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS inspection_task (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '任务ID',
     task_code VARCHAR(50) NOT NULL COMMENT '任务单号',
     plan_id BIGINT NULL COMMENT '来源计划',
+    work_order_id BIGINT NULL COMMENT '关联巡检工单(inspection_work_order.id)',
     device_id BIGINT NOT NULL,
     task_name VARCHAR(100) NOT NULL,
     exec_user_id BIGINT NOT NULL,
@@ -132,7 +133,8 @@ CREATE TABLE IF NOT EXISTS inspection_task (
     KEY idx_device (device_id),
     KEY idx_exec (exec_user_id),
     KEY idx_status (status),
-    KEY idx_plan_time (plan_execute_time)
+    KEY idx_plan_time (plan_execute_time),
+    KEY idx_work_order (work_order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='巡检任务表';
 
 CREATE TABLE IF NOT EXISTS inspection_record (

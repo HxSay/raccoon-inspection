@@ -15,6 +15,8 @@ public class InspectionTask {
     private Long id;
     private String taskCode;
     private Long planId;
+    /** 关联巡检工单 inspection_work_order.id */
+    private Long workOrderId;
     private Long deviceId;
     private String taskName;
     private Long execUserId;
