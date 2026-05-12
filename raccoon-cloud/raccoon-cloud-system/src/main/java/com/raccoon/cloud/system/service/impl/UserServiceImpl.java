@@ -148,6 +148,17 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public User getByEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+        QueryWrapper<User> wrapper = new QueryWrapper<>();
+        wrapper.eq("email", email);
+        wrapper.eq("del_flag", 0);
+        return userMapper.selectOne(wrapper);
+    }
+
+    @Override
     public void register(RegisterRequest request) {
         // 检查用户名是否已存在
         if (getByUsername(request.getUsername()) != null) {

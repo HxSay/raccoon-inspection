@@ -50,6 +50,24 @@ const routes: RouteRecordRaw[] = [
         name: 'DictData',
         component: () => import('@/views/dict/data/index.vue'),
         meta: { title: '字典数据管理', icon: 'Collection', roles: ['admin'] }
+      },
+      {
+        path: '/cmms/device',
+        name: 'CmmsDevice',
+        component: () => import('@/views/cmms/device/index.vue'),
+        meta: { title: '设备管理', icon: 'Monitor' }
+      },
+      {
+        path: '/cmms/inspection',
+        name: 'CmmsInspection',
+        component: () => import('@/views/cmms/inspection/index.vue'),
+        meta: { title: '巡检管理', icon: 'DocumentChecked' }
+      },
+      {
+        path: '/cmms/maintenance',
+        name: 'CmmsMaintenance',
+        component: () => import('@/views/cmms/maintenance/index.vue'),
+        meta: { title: '设备维护工单', icon: 'Tools' }
       }
     ]
   }

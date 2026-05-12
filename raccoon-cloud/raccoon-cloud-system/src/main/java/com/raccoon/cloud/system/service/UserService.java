@@ -63,4 +63,9 @@ public interface UserService {
      * 根据手机号查询用户
      */
     User getByPhone(String phone);
+
+    /**
+     * 根据邮箱查询用户（SSO 自动绑定时使用）
+     */
+    User getByEmail(String email);
 }

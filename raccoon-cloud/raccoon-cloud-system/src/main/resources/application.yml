@@ -4,7 +4,13 @@ spring:
   application:
     name: raccoon-cloud-system
   config:
-    import: nacos:localhost:8848
+    import:
+      - nacos:localhost:8848
+      - optional:classpath:application-sso.yml
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
   cloud:
     nacos:
       discovery:

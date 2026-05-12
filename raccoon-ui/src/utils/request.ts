@@ -55,7 +55,7 @@ service.interceptors.response.use(
   (response: AxiosResponse) => {
     const res = response.data
     if (res.code !== 200) {
-      ElMessage.error(res.message || '请求失败')
+      ElMessage.error(res.msg || res.message || '请求失败')
       if (res.code === 401) {
         const userStore = useUserStore()
         userStore.logout()

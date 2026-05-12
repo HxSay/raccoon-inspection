@@ -21,6 +21,14 @@ public class User {
     private String avatar;
     private Integer gender;
     private Integer userType;
+    /**
+     * 登录渠道：local=本地账号，sso=统一认证
+     */
+    private String loginChannel;
+    /**
+     * 是否由 SSO 自动注册：0 否，1 是
+     */
+    private Integer ssoAutoRegistered;
     private Integer status;
     private LocalDateTime lastLoginAt;
     private String lastLoginIp;

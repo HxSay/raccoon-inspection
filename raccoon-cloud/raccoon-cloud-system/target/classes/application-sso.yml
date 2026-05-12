@@ -1,0 +1,39 @@
+# SSO 配置（与业务代码分离，通过 spring.config.import 引入，也可迁入 Nacos）
+# 默认关闭，开启前请先执行 db/sso_schema.sql 并配置 Redis 与 IdP 参数
+
+sso:
+  enabled: false
+  provider-code: hxsay-idp
+  mode: OAUTH2_CODE
+  # mode: TICKET_JWT
+
+  authorization-uri: https://idp.example.com/oauth2/authorize
+  token-uri: https://idp.example.com/oauth2/token
+  client-id: change-me
+  client-secret: change-me
+  redirect-uri: http://localhost:8087/sso/callback
+
+  scope: "openid profile email"
+  ticket-param-name: ticket
+  ticket-require-state: true
+
+  # 浏览器模式下的前端落地页（可选）；优先使用 /sso/entry?returnUrl= 写入 state 的值
+  front-channel-success-redirect: http://localhost:5173/
+
+  # OIDC 会话注销端点（可选），/sso/logout 返回给前端用于跳转
+  idp-end-session-uri: https://idp.example.com/oauth2/logout
+
+  token-to-verify: id_token
+  auto-bind-by-email: true
+  auto-register: true
+  default-user-type: 2
+
+  state-ttl-seconds: 600
+  replay-ttl-cap-seconds: 3600
+
+  idp-jwt:
+    # 二选一：对称 HS 验签（与 IdP 约定算法长度）或 RSA 公钥验签
+    hmac-secret: ""
+    public-key-pem: ""
+    expected-issuer: ""
+    expected-audience: ""
