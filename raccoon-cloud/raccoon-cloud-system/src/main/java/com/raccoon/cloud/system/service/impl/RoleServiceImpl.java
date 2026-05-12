@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.raccoon.cloud.system.mapper.RoleMapper;
 import com.raccoon.cloud.system.mapper.UserRoleRelMapper;
 import com.raccoon.cloud.system.model.Role;
+import com.raccoon.cloud.system.model.User;
 import com.raccoon.cloud.system.model.UserRoleRel;
 import com.raccoon.cloud.system.model.dto.RoleRequest;
 import com.raccoon.cloud.system.service.RoleService;
@@ -12,8 +13,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.util.StringUtils;
+
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 public class RoleServiceImpl implements RoleService {
@@ -71,8 +79,55 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     public List<Role> getRolesByUserId(Long userId) {
-        // 这里需要实现根据用户ID获取角色列表的逻辑
-        // 可以使用MyBatis-Plus的关联查询或自定义SQL
-        return null;
+        if (userId == null) {
+            return Collections.emptyList();
+        }
+        QueryWrapper<UserRoleRel> wrapper = new QueryWrapper<>();
+        wrapper.eq("user_id", userId);
+        List<UserRoleRel> rels = userRoleRelMapper.selectList(wrapper);
+        if (rels.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> roleIds = rels.stream()
+                .map(UserRoleRel::getRoleId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        List<Role> roles = new ArrayList<>();
+        for (Long roleId : roleIds) {
+            Role role = roleMapper.selectById(roleId);
+            if (role != null && (role.getDelFlag() == null || role.getDelFlag() == 0)) {
+                roles.add(role);
+            }
+        }
+        return roles;
+    }
+
+    @Override
+    public List<String> getLoginRoleCodes(User user) {
+        if (user == null || user.getId() == null) {
+            return Collections.emptyList();
+        }
+        LinkedHashSet<String> codes = new LinkedHashSet<>();
+        for (Role r : getRolesByUserId(user.getId())) {
+            if (StringUtils.hasText(r.getRoleCode())) {
+                codes.add(r.getRoleCode().trim());
+            }
+        }
+        if (codes.isEmpty() && isBuiltInPrivileged(user)) {
+            codes.add("admin");
+        }
+        return new ArrayList<>(codes);
+    }
+
+    /**
+     * 与前端 userType 约定一致：2 = B 端管理员；root 账号始终视为平台管理员。
+     */
+    private static boolean isBuiltInPrivileged(User u) {
+        if (u.getUsername() != null && "root".equalsIgnoreCase(u.getUsername().trim())) {
+            return true;
+        }
+        Integer t = u.getUserType();
+        return t != null && t == 2;
     }
 }

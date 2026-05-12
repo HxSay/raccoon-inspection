@@ -6,6 +6,7 @@ import com.raccoon.cloud.system.model.dto.LoginRequest;
 import com.raccoon.cloud.system.model.dto.RegisterRequest;
 import com.raccoon.cloud.system.mapper.LoginLogMapper;
 import com.raccoon.cloud.system.service.AuthService;
+import com.raccoon.cloud.system.service.RoleService;
 import com.raccoon.cloud.system.service.UserService;
 import com.raccoon.cloud.system.utils.JwtUtil;
 import com.raccoon.common.result.HxResult;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -31,6 +33,9 @@ public class AuthServiceImpl implements AuthService {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private RoleService roleService;
 
     @Autowired
     private LoginLogMapper loginLogMapper;
@@ -70,6 +75,8 @@ public class AuthServiceImpl implements AuthService {
             data.put("token", token);
             data.put("refreshToken", refreshToken);
             data.put("user", user);
+            List<String> roleCodes = roleService.getLoginRoleCodes(user);
+            data.put("roles", roleCodes);
 
             return HxResult.success(data);
         } catch (Exception e) {

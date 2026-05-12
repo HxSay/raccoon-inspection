@@ -6,6 +6,7 @@ import com.raccoon.cloud.system.mapper.ThirdPartyUserMapper;
 import com.raccoon.cloud.system.mapper.UserMapper;
 import com.raccoon.cloud.system.model.ThirdPartyUser;
 import com.raccoon.cloud.system.model.User;
+import com.raccoon.cloud.system.service.RoleService;
 import com.raccoon.cloud.system.service.UserService;
 import com.raccoon.cloud.system.sso.config.SsoProperties;
 import com.raccoon.cloud.system.sso.constant.SsoConstants;
@@ -33,6 +34,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -54,6 +56,7 @@ public class SsoServiceImpl implements SsoService {
     private final UserMapper userMapper;
     private final ThirdPartyUserMapper thirdPartyUserMapper;
     private final UserService userService;
+    private final RoleService roleService;
     private final JwtUtil jwtUtil;
     private final BCryptPasswordEncoder passwordEncoder;
 
@@ -402,6 +405,8 @@ public class SsoServiceImpl implements SsoService {
         data.put("token", token);
         data.put("refreshToken", refreshToken);
         data.put("user", fresh);
+        List<String> roleCodes = roleService.getLoginRoleCodes(fresh);
+        data.put("roles", roleCodes);
         return data;
     }
 

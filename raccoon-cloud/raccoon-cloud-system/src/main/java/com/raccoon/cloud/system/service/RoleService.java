@@ -1,6 +1,7 @@
 package com.raccoon.cloud.system.service;
 
 import com.raccoon.cloud.system.model.Role;
+import com.raccoon.cloud.system.model.User;
 import com.raccoon.cloud.system.model.dto.RoleRequest;
 
 import java.util.List;
@@ -30,4 +31,9 @@ public interface RoleService {
      * 根据用户ID获取角色列表
      */
     List<Role> getRolesByUserId(Long userId);
+
+    /**
+     * 登录/鉴权用：库中角色编码 + B 端管理员 / root 兜底 admin
+     */
+    List<String> getLoginRoleCodes(User user);
 }

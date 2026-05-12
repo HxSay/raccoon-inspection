@@ -19,6 +19,7 @@ import {
   type DeviceInfo,
   type InspectionPoint
 } from '@/api/cmms'
+import { getUserPage, type UserResponse } from '@/api/user'
 
 const tab = ref('plan')
 
@@ -37,6 +38,7 @@ const planForm = ref<InspectionPlan>({
 })
 
 const deviceOptions = ref<DeviceInfo[]>([])
+const userOptions = ref<UserResponse[]>([])
 const selectedDeviceIds = ref<number[]>([])
 
 const taskQuery = ref({ page: 1, size: 10, status: undefined as number | undefined })
@@ -82,8 +84,19 @@ const loadDevices = async () => {
   deviceOptions.value = res.data.records
 }
 
+const loadUsers = async () => {
+  const res: any = await getUserPage({ page: 1, size: 500, status: 1 })
+  userOptions.value = res.data.records
+}
+
+const userSelectLabel = (u: UserResponse) => {
+  const nick = u.nickname?.trim()
+  return nick ? `${u.username}（${nick}）` : u.username
+}
+
 onMounted(async () => {
   await loadDevices()
+  await loadUsers()
   loadPlans()
   loadTasks()
 })
@@ -168,9 +181,9 @@ const openTask = (row?: InspectionTask) => {
       ':' +
       pad(now.getSeconds())
     taskForm.value = {
-      deviceId: deviceOptions.value[0]?.id || 1,
+      deviceId: deviceOptions.value[0]?.id ?? 1,
       taskName: '手动巡检任务',
-      execUserId: 1,
+      execUserId: userOptions.value[0]?.id ?? 1,
       planExecuteTime: local,
       status: 0
     }
@@ -363,9 +376,22 @@ watch(tab, (v) => {
 
     <el-dialog v-model="taskDialog" title="巡检任务" width="560px">
       <el-form label-width="110px">
-        <el-form-item label="设备ID"><el-input-number v-model="taskForm.deviceId" :min="1" style="width: 100%" /></el-form-item>
+        <el-form-item label="设备">
+          <el-select v-model="taskForm.deviceId" filterable placeholder="选择设备" style="width: 100%">
+            <el-option
+              v-for="d in deviceOptions"
+              :key="d.id"
+              :label="d.deviceName + '（' + d.deviceCode + '）'"
+              :value="d.id!"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="任务名称"><el-input v-model="taskForm.taskName" /></el-form-item>
-        <el-form-item label="执行人用户ID"><el-input-number v-model="taskForm.execUserId" :min="1" style="width: 100%" /></el-form-item>
+        <el-form-item label="执行人">
+          <el-select v-model="taskForm.execUserId" filterable placeholder="选择执行人" style="width: 100%">
+            <el-option v-for="u in userOptions" :key="u.id" :label="userSelectLabel(u)" :value="u.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="计划执行时间">
           <el-date-picker v-model="taskForm.planExecuteTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" />
         </el-form-item>
