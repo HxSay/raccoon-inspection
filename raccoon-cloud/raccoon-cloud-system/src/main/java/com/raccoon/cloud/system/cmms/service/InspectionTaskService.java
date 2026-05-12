@@ -3,6 +3,7 @@ package com.raccoon.cloud.system.cmms.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raccoon.cloud.system.cmms.dto.InspectionTaskPageRequest;
@@ -109,6 +110,7 @@ public class InspectionTaskService {
         if (!StringUtils.hasText(row.getTaskCode())) {
             row.setTaskCode(genTaskCode());
         }
+        fillMissingDeviceId(row);
         if (row.getId() == null) {
             taskMapper.insert(row);
         } else {
@@ -328,6 +330,41 @@ public class InspectionTaskService {
             }
         }
         return n;
+    }
+
+    /**
+     * 未传 deviceId 时：优先从关联巡检工单步骤解析，其次从计划 device_ids 取首个设备。
+     */
+    private void fillMissingDeviceId(InspectionTask row) {
+        if (row.getDeviceId() != null) {
+            return;
+        }
+        if (row.getWorkOrderId() != null) {
+            Long fromWo = inspectionWorkOrderService.resolvePrimaryDeviceId(row.getWorkOrderId());
+            if (fromWo != null) {
+                row.setDeviceId(fromWo);
+                return;
+            }
+        }
+        if (row.getPlanId() == null) {
+            return;
+        }
+        InspectionPlan plan = planMapper.selectById(row.getPlanId());
+        if (plan == null || !StringUtils.hasText(plan.getDeviceIds())) {
+            return;
+        }
+        try {
+            List<Long> ids = objectMapper.readValue(plan.getDeviceIds(), new TypeReference<List<Long>>() {
+            });
+            for (Long id : ids) {
+                if (id != null) {
+                    row.setDeviceId(id);
+                    return;
+                }
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("解析计划 device_ids 失败 planId={}: {}", row.getPlanId(), e.getMessage());
+        }
     }
 
     private Long resolveDeviceIdForRecord(InspectionTask task, Long pointId) {

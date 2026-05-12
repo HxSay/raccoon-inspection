@@ -111,6 +111,7 @@ public class CmmsInspectionController {
     }
 
     @PostMapping("/task/save")
+    @Operation(summary = "保存巡检任务")
     public HxResult<?> taskSave(@RequestBody InspectionTask body) {
         inspectionTaskService.save(body);
         return HxResult.success("保存成功");

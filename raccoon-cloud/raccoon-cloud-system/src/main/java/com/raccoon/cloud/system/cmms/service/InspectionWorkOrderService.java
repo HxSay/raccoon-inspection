@@ -204,6 +204,25 @@ public class InspectionWorkOrderService {
         return true;
     }
 
+    /**
+     * 从巡检工单步骤中取首个已填写的 device_id（按 step_order），用于补全巡检任务等设备字段。
+     */
+    public Long resolvePrimaryDeviceId(Long workOrderId) {
+        if (workOrderId == null) {
+            return null;
+        }
+        List<InspectionWorkOrderDetail> details = detailMapper.selectList(
+                new QueryWrapper<InspectionWorkOrderDetail>()
+                        .eq("order_id", workOrderId)
+                        .orderByAsc("step_order"));
+        for (InspectionWorkOrderDetail d : details) {
+            if (d.getDeviceId() != null) {
+                return d.getDeviceId();
+            }
+        }
+        return null;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void linkWorkOrderToTask(Long taskId, Long workOrderId) {
         InspectionWorkOrder o = orderMapper.selectById(workOrderId);

@@ -205,30 +205,32 @@ const genTasks = async (id: number) => {
 const dispatchWorkOrdersFromPlan = async (planId: number) => {
   await ElMessageBox.confirm(
     '将为本计划下「待执行且未绑定工单」的每条巡检任务生成一张巡检工单，并自动下发到对应任务执行人，由其在手机端填报。是否继续？',
-    '按计划批量派发'
+    '按计划批量下发'
   )
   const res: any = await cmmsDispatchWorkOrdersFromPlan(planId)
   if (res.code === 200) {
-    ElMessage.success(res.msg || '派发成功')
+    ElMessage.success(res.msg || '下发成功')
     loadTasks()
   }
 }
 
-const dispatchTaskWorkOrder = async (taskId: number) => {
+const dispatchTaskWorkOrder = async (row: InspectionTask) => {
+  if (row.id == null) return
+  const who = execUserLabel(row.execUserId)
   await ElMessageBox.confirm(
-    '将把本任务的巡检工单下发给任务上的执行人，由其在手机端「待执行」中填报。是否继续？',
-    '派发工单'
+    `将把本任务关联的巡检工单下发给执行人「${who}」，由其在手机端「待执行」中填报。是否继续？`,
+    '下发给巡检人'
   )
-  const res: any = await cmmsTaskDispatchWorkOrder(taskId)
+  const res: any = await cmmsTaskDispatchWorkOrder(row.id)
   if (res.code === 200) {
-    ElMessage.success(res.msg || '派发成功')
+    ElMessage.success(res.msg || '已下发')
     loadTasks()
     loadIwoPendingIssue()
   }
 }
 
 const canDispatchTask = (row: InspectionTask) => {
-  if (row.status !== 0) return false
+  if (row.status !== 0 || row.execUserId == null) return false
   return row.workOrderId != null || row.planId != null
 }
 
@@ -410,7 +412,7 @@ watch(
 
       <el-tab-pane label="巡检任务" name="task">
         <el-alert
-          title="派发说明"
+          title="下发说明"
           type="info"
           show-icon
           :closable="false"
@@ -418,14 +420,15 @@ watch(
         >
           <template #default>
             <div class="task-tip-body">
-              <p><strong>自动派发</strong>：到达「计划执行时间」后，已关联且仍为「待下发」的巡检工单会自动下发给下方「执行人」；</p>
-              <p><strong>手动派发</strong>：点击「派发工单」立即下发给该任务执行人，由其在手机端「待执行」中填报；</p>
-              <p><strong>批量派发</strong>：在筛选中选择计划后点「按计划批量派发」，为该计划下所有待派发任务各生成一单并下发。</p>
+              <p><strong>自动下发</strong>：到达「计划执行时间」后，已关联且仍为「待下发」的巡检工单会自动下发给任务上的「执行人」；</p>
+              <p><strong>手动下发</strong>：在列表中点击「下发」，将关联工单立即下发给该任务的执行人（巡检人），由其在手机端「待执行」中填报；</p>
+              <p><strong>批量下发</strong>：在筛选中选择计划后点「按计划批量下发」，为该计划下符合条件的任务各生成一单并下发。</p>
               <p>
                 <strong>执行人手机填报</strong>：须使用<strong>任务上的执行人账号</strong>登录系统，在手机浏览器打开
                 <router-link to="/m/patrol">「我的巡检工单」(/m/patrol)</router-link>
                 ，即可查看待执行/执行中的工单并填报；电脑端亦可在「巡检管理 → 巡检工单 → 我的工单」中操作。
               </p>
+            </div>
           </template>
         </el-alert>
         <el-form :inline="true">
@@ -446,7 +449,7 @@ watch(
               type="warning"
               :disabled="!taskQuery.planId"
               @click="taskQuery.planId && dispatchWorkOrdersFromPlan(taskQuery.planId)"
-              >按计划批量派发</el-button
+              >按计划批量下发</el-button
             >
           </el-form-item>
         </el-form>
@@ -484,8 +487,8 @@ watch(
                 v-if="canDispatchTask(row)"
                 link
                 type="warning"
-                @click="dispatchTaskWorkOrder(row.id!)"
-                >派发工单</el-button
+                @click="dispatchTaskWorkOrder(row)"
+                >下发</el-button
               >
               <el-button v-if="row.status !== 2 && row.deviceId != null" link type="primary" @click="openComplete(row)"
                 >填报完成</el-button
@@ -562,7 +565,7 @@ watch(
             v-model="taskForm.workOrderId"
             clearable
             filterable
-            placeholder="选「待下发」工单；保存后可在到达计划时间自动派发，也可在列表点「派发工单」立即下发"
+            placeholder="选「待下发」工单；保存后可在到达计划时间自动下发，也可在任务列表点「下发」立即下发给执行人"
             style="width: 100%"
           >
             <el-option

@@ -99,9 +99,17 @@ service.interceptors.response.use(
         case 404:
           ElMessage.error('请求的资源不存在')
           break
-        case 500:
-          ElMessage.error('服务器内部错误')
+        case 500: {
+          const d = error.response?.data as Record<string, unknown> | undefined
+          const detail =
+            (typeof d?.message === 'string' && d.message) ||
+            (typeof d?.msg === 'string' && d.msg) ||
+            (typeof d?.error === 'string' && d.error) ||
+            (typeof d?.detail === 'string' && d.detail) ||
+            '服务器内部错误'
+          ElMessage.error(detail)
           break
+        }
         default:
           ElMessage.error(error.message || '请求失败')
       }

@@ -2,13 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  iwoPage,
-  iwoMyPage,
-  iwoIssue,
-  iwoCancel,
-  type IwoRow
-} from '@/api/inspectionWorkOrder'
+import { iwoPage, iwoMyPage, iwoCancel, type IwoRow } from '@/api/inspectionWorkOrder'
 
 const router = useRouter()
 
@@ -67,13 +61,6 @@ watch([mode, myTab], () => {
 
 onMounted(load)
 
-const issue = async (row: IwoRow) => {
-  await ElMessageBox.confirm('确认下发该工单？', '下发')
-  await iwoIssue(row.id)
-  ElMessage.success('已下发')
-  load()
-}
-
 const cancel = async (row: IwoRow) => {
   await ElMessageBox.confirm('确认取消该工单？', '取消')
   await iwoCancel(row.id)
@@ -88,6 +75,16 @@ const cancel = async (row: IwoRow) => {
       <el-radio-button label="all">全部工单</el-radio-button>
       <el-radio-button label="my">我的工单</el-radio-button>
     </el-radio-group>
+
+    <el-alert
+      v-if="mode === 'all'"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    >
+      「待下发」工单不在此页下发；请切换到「巡检任务」页，对关联任务点击「下发」，将工单下发至任务上的执行人（巡检人）。
+    </el-alert>
 
     <template v-if="mode === 'my'">
       <el-alert type="success" :closable="false" show-icon style="margin-bottom: 12px">
@@ -169,7 +166,6 @@ const cancel = async (row: IwoRow) => {
             @click="router.push(`/cmms/inspection/work-order/execute/${row.id}`)"
             >执行</el-button
           >
-          <el-button v-if="row.status === 1" link type="success" @click="issue(row)">下发</el-button>
           <el-button v-if="row.status === 1 || row.status === 2" link type="danger" @click="cancel(row)">取消</el-button>
         </template>
       </el-table-column>
