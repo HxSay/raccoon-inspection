@@ -9,15 +9,18 @@ import com.raccoon.cloud.system.cmms.dto.InspectionTaskPageRequest;
 import com.raccoon.cloud.system.cmms.dto.TaskCompleteRequest;
 import com.raccoon.cloud.system.cmms.entity.DeviceInfo;
 import com.raccoon.cloud.system.cmms.entity.InspectionPlan;
+import com.raccoon.cloud.system.cmms.entity.InspectionPoint;
 import com.raccoon.cloud.system.cmms.entity.InspectionRecord;
 import com.raccoon.cloud.system.cmms.entity.InspectionTask;
 import com.raccoon.cloud.system.cmms.entity.WorkOrder;
 import com.raccoon.cloud.system.cmms.mapper.DeviceInfoMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionPlanMapper;
+import com.raccoon.cloud.system.cmms.mapper.InspectionPointMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionRecordMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionTaskMapper;
 import com.raccoon.cloud.system.model.User;
 import com.raccoon.cloud.system.service.UserService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -26,7 +29,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 
+@Slf4j
 @Service
 public class InspectionTaskService {
 
@@ -34,24 +39,30 @@ public class InspectionTaskService {
     private final InspectionPlanMapper planMapper;
     private final DeviceInfoMapper deviceInfoMapper;
     private final InspectionRecordMapper recordMapper;
+    private final InspectionPointMapper pointMapper;
     private final ObjectMapper objectMapper;
     private final WorkOrderService workOrderService;
     private final UserService userService;
+    private final InspectionWorkOrderService inspectionWorkOrderService;
 
     public InspectionTaskService(InspectionTaskMapper taskMapper,
                                  InspectionPlanMapper planMapper,
                                  DeviceInfoMapper deviceInfoMapper,
                                  InspectionRecordMapper recordMapper,
+                                 InspectionPointMapper pointMapper,
                                  ObjectMapper objectMapper,
                                  WorkOrderService workOrderService,
-                                 UserService userService) {
+                                 UserService userService,
+                                 InspectionWorkOrderService inspectionWorkOrderService) {
         this.taskMapper = taskMapper;
         this.planMapper = planMapper;
         this.deviceInfoMapper = deviceInfoMapper;
         this.recordMapper = recordMapper;
+        this.pointMapper = pointMapper;
         this.objectMapper = objectMapper;
         this.workOrderService = workOrderService;
         this.userService = userService;
+        this.inspectionWorkOrderService = inspectionWorkOrderService;
     }
 
     public InspectionTask get(Long id) {
@@ -80,7 +91,15 @@ public class InspectionTaskService {
         return taskMapper.selectPage(p, w);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void save(InspectionTask row) {
+        Long oldWoId = null;
+        if (row.getId() != null) {
+            InspectionTask old = taskMapper.selectById(row.getId());
+            if (old != null) {
+                oldWoId = old.getWorkOrderId();
+            }
+        }
         if (row.getStatus() == null) {
             row.setStatus(0);
         }
@@ -95,9 +114,20 @@ public class InspectionTaskService {
         } else {
             taskMapper.updateById(row);
         }
+        Long newWoId = row.getWorkOrderId();
+        if (!Objects.equals(oldWoId, newWoId) && oldWoId != null) {
+            inspectionWorkOrderService.unlinkTaskFromWorkOrder(row.getId(), oldWoId);
+        }
+        if (newWoId != null) {
+            inspectionWorkOrderService.linkWorkOrderToTask(row.getId(), newWoId);
+        }
     }
 
     public void delete(Long id) {
+        InspectionTask t = taskMapper.selectById(id);
+        if (t != null && t.getWorkOrderId() != null) {
+            inspectionWorkOrderService.unlinkTaskFromWorkOrder(t.getId(), t.getWorkOrderId());
+        }
         taskMapper.deleteById(id);
     }
 
@@ -116,7 +146,7 @@ public class InspectionTaskService {
         if (!StringUtils.hasText(plan.getDeviceIds())) {
             throw new IllegalArgumentException("计划未配置设备列表 device_ids");
         }
-        List<Long> deviceIds = objectMapper.readValue(plan.getDeviceIds(), new TypeReference<>() {
+        List<Long> deviceIds = objectMapper.readValue(plan.getDeviceIds(), new TypeReference<List<Long>>() {
         });
         int n = 0;
         LocalDateTime planTime = LocalDateTime.now();
@@ -154,10 +184,13 @@ public class InspectionTaskService {
         if (task == null) {
             throw new IllegalArgumentException("任务不存在");
         }
-        DeviceInfo dev = deviceInfoMapper.selectById(task.getDeviceId());
+        DeviceInfo dev = task.getDeviceId() != null ? deviceInfoMapper.selectById(task.getDeviceId()) : null;
         if (StringUtils.hasText(scannedDeviceCode) && dev != null
                 && !scannedDeviceCode.trim().equals(dev.getDeviceCode())) {
             throw new IllegalArgumentException("扫码设备与任务设备不一致");
+        }
+        if (StringUtils.hasText(scannedDeviceCode) && dev == null) {
+            throw new IllegalArgumentException("任务未关联设备，无法进行扫码校验");
         }
         task.setLongitude(longitude);
         task.setLatitude(latitude);
@@ -195,6 +228,9 @@ public class InspectionTaskService {
         }
         task.setIsAbnormal(1);
         taskMapper.updateById(task);
+        if (task.getDeviceId() == null) {
+            throw new IllegalArgumentException("任务未关联设备，无法生成维修工单");
+        }
         User u = userService.getCurrentUser();
         WorkOrder wo = workOrderService.createFromInspection(
                 task.getDeviceId(), u.getId(),
@@ -217,9 +253,10 @@ public class InspectionTaskService {
         }
         if (req.getRecords() != null) {
             for (TaskCompleteRequest.RecordLine line : req.getRecords()) {
+                Long deviceId = resolveDeviceIdForRecord(task, line.getPointId());
                 InspectionRecord r = new InspectionRecord();
                 r.setTaskId(task.getId());
-                r.setDeviceId(task.getDeviceId());
+                r.setDeviceId(deviceId);
                 r.setPointId(line.getPointId());
                 r.setCheckValue(line.getCheckValue());
                 r.setIsNormal(line.getIsNormal() == null ? 1 : line.getIsNormal());
@@ -245,7 +282,7 @@ public class InspectionTaskService {
             }
             String images = "[]";
             if (req.getRecords() != null) {
-                var urls = req.getRecords().stream()
+                String urls = req.getRecords().stream()
                         .map(TaskCompleteRequest.RecordLine::getImageUrls)
                         .filter(StringUtils::hasText)
                         .findFirst()
@@ -254,8 +291,57 @@ public class InspectionTaskService {
                     images = urls;
                 }
             }
-            workOrderService.createFromInspection(task.getDeviceId(), u.getId(), desc.toString(), images);
+            Long deviceId = task.getDeviceId();
+            if (deviceId == null && req.getRecords() != null) {
+                for (TaskCompleteRequest.RecordLine line : req.getRecords()) {
+                    if (line.getIsNormal() != null && line.getIsNormal() == 0) {
+                        deviceId = resolveDeviceIdForRecord(task, line.getPointId());
+                        break;
+                    }
+                }
+            }
+            if (deviceId == null) {
+                throw new IllegalArgumentException("任务未关联设备且无法从巡检点解析设备，无法生成维修工单");
+            }
+            workOrderService.createFromInspection(deviceId, u.getId(), desc.toString(), images);
         }
+    }
+
+    /**
+     * 扫描待执行且已到计划时间、已关联「待下发」巡检工单的任务，自动下发工单（手机端可见待执行）。
+     */
+    public int dispatchDueLinkedWorkOrders() {
+        LocalDateTime now = LocalDateTime.now();
+        List<InspectionTask> list = taskMapper.selectList(new QueryWrapper<InspectionTask>()
+                .eq("status", 0)
+                .isNotNull("work_order_id")
+                .le("plan_execute_time", now)
+                .last("LIMIT 100"));
+        int n = 0;
+        for (InspectionTask t : list) {
+            try {
+                if (inspectionWorkOrderService.dispatchForScheduledTask(t.getWorkOrderId(), t.getExecUserId())) {
+                    n++;
+                }
+            } catch (Exception e) {
+                log.warn("任务 {} 关联工单 {} 到点派发失败: {}", t.getId(), t.getWorkOrderId(), e.getMessage());
+            }
+        }
+        return n;
+    }
+
+    private Long resolveDeviceIdForRecord(InspectionTask task, Long pointId) {
+        if (task.getDeviceId() != null) {
+            return task.getDeviceId();
+        }
+        if (pointId == null) {
+            throw new IllegalArgumentException("缺少巡检点，无法解析设备");
+        }
+        InspectionPoint pt = pointMapper.selectById(pointId);
+        if (pt == null || pt.getDeviceId() == null) {
+            throw new IllegalArgumentException("任务未关联设备且巡检点未绑定设备，无法保存记录");
+        }
+        return pt.getDeviceId();
     }
 
     private String genTaskCode() {

@@ -14,6 +14,33 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/Register.vue'),
     meta: { title: '注册', requiresAuth: false }
   },
+  /** 手机端：当前登录用户作为巡检人时，查看待执行/执行中/已完成的巡检工单 */
+  {
+    path: '/m',
+    component: () => import('@/layouts/MobileLayout.vue'),
+    redirect: '/m/patrol',
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: 'patrol',
+        name: 'MobilePatrolOrders',
+        component: () => import('@/views/cmms/inspection/mobile/MyPatrolOrders.vue'),
+        meta: { title: '我的巡检工单' }
+      },
+      {
+        path: 'execute/:orderId',
+        name: 'MobilePatrolExecute',
+        component: () => import('@/views/cmms/inspection/work-order/Execute.vue'),
+        meta: { title: '巡检执行', hidden: true }
+      },
+      {
+        path: 'detail/:orderId',
+        name: 'MobilePatrolDetail',
+        component: () => import('@/views/cmms/inspection/work-order/Detail.vue'),
+        meta: { title: '巡检详情', hidden: true }
+      }
+    ]
+  },
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),

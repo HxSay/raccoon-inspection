@@ -3,6 +3,7 @@ package com.raccoon.cloud.system.cmms.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -20,7 +21,10 @@ public class InspectionTask {
     private Long deviceId;
     private String taskName;
     private Long execUserId;
+    /** 与前端 Element Plus value-format 一致 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime planExecuteTime;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime actualExecuteTime;
     private Integer status;
     private Integer isAbnormal;

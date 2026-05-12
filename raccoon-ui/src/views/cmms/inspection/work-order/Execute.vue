@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   iwoDetail,
@@ -14,6 +14,18 @@ import {
 const route = useRoute()
 const router = useRouter()
 const orderId = computed(() => Number(route.params.orderId))
+
+const isMobilePatrol = computed(() => route.path.startsWith('/m/'))
+
+const patrolBackTarget = (): RouteLocationRaw => {
+  if (isMobilePatrol.value) {
+    return '/m/patrol'
+  }
+  return { path: '/cmms/inspection', query: { tab: 'order' } }
+}
+
+const patrolDetailPath = (id: number) =>
+  isMobilePatrol.value ? `/m/detail/${id}` : `/cmms/inspection/work-order/detail/${id}`
 
 const detail = ref<IwoFull | null>(null)
 const loading = ref(false)
@@ -110,7 +122,7 @@ const outOfRange = (s: IwoStepVO) => {
 
 <template>
   <div class="page" v-loading="loading">
-    <el-page-header @back="router.push({ path: '/cmms/inspection', query: { tab: 'order' } })" content="巡检执行" />
+    <el-page-header @back="router.push(patrolBackTarget())" content="巡检执行" />
 
     <template v-if="detail">
       <el-descriptions :column="2" border class="block" title="工单概要">
@@ -168,7 +180,7 @@ const outOfRange = (s: IwoStepVO) => {
 
       <el-card v-else class="block" shadow="never">
         <el-result icon="success" title="本工单步骤已全部完成" />
-        <el-button type="primary" @click="router.push(`/cmms/inspection/work-order/detail/${orderId}`)">查看结果详情</el-button>
+        <el-button type="primary" @click="router.push(patrolDetailPath(orderId))">查看结果详情</el-button>
       </el-card>
 
       <el-card class="block" shadow="never">

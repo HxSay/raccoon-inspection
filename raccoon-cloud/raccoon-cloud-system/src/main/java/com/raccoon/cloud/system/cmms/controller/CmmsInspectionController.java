@@ -2,6 +2,7 @@ package com.raccoon.cloud.system.cmms.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.raccoon.cloud.system.cmms.dto.InspectionDispatchFromPlanRequest;
+import com.raccoon.cloud.system.cmms.dto.InspectionTaskDispatchRequest;
 import com.raccoon.cloud.system.cmms.dto.InspectionPlanPageRequest;
 import com.raccoon.cloud.system.cmms.dto.InspectionTaskPageRequest;
 import com.raccoon.cloud.system.cmms.dto.TaskCheckInRequest;
@@ -27,7 +28,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/cmms/inspection")
-@Tag(name = "CMMS-巡检管理", description = "计划、任务、记录、按计划派发巡检工单")
+@Tag(name = "CMMS-巡检管理", description = "计划、任务、记录、巡检工单派发")
 public class CmmsInspectionController {
 
     private final InspectionPlanService inspectionPlanService;
@@ -78,11 +79,22 @@ public class CmmsInspectionController {
     }
 
     @PostMapping("/workOrder/dispatchFromPlan")
-    @Operation(summary = "按计划派发巡检工单", description = "为待执行且未绑定工单的任务各建一单并自动下发到任务执行人")
+    @Operation(summary = "按计划批量派发巡检工单", description = "为待执行且未绑定工单的任务各建一单并自动下发到任务执行人（建议在「巡检任务」页使用）")
     public HxResult<Integer> workOrderDispatchFromPlan(@Valid @RequestBody InspectionDispatchFromPlanRequest body) {
         try {
             int n = inspectionWorkOrderService.dispatchFromPlan(body.getPlanId());
             return HxResult.success("已派发 " + n + " 张工单", n);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return HxResult.fail(e.getMessage());
+        }
+    }
+
+    @PostMapping("/task/dispatchWorkOrder")
+    @Operation(summary = "手动派发单条任务的巡检工单", description = "已关联待下发工单则立即下发；否则若有来源计划则生成一单并下发至任务执行人")
+    public HxResult<?> taskDispatchWorkOrder(@Valid @RequestBody InspectionTaskDispatchRequest body) {
+        try {
+            inspectionWorkOrderService.dispatchWorkOrderForTask(body.getTaskId());
+            return HxResult.success("已派发至任务执行人，请在手机端填报");
         } catch (IllegalArgumentException | IllegalStateException e) {
             return HxResult.fail(e.getMessage());
         }

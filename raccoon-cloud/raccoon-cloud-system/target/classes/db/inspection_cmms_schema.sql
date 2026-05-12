@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS inspection_task (
     task_code VARCHAR(50) NOT NULL COMMENT '任务单号',
     plan_id BIGINT NULL COMMENT '来源计划',
     work_order_id BIGINT NULL COMMENT '关联巡检工单(inspection_work_order.id)',
-    device_id BIGINT NOT NULL,
+    device_id BIGINT NULL COMMENT '设备(device_info.id)，可空',
     task_name VARCHAR(100) NOT NULL,
     exec_user_id BIGINT NOT NULL,
     plan_execute_time DATETIME NOT NULL,

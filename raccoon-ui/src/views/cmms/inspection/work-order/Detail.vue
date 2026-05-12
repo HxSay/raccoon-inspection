@@ -1,11 +1,23 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted, computed } from 'vue'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { iwoDetail, type IwoFull } from '@/api/inspectionWorkOrder'
 
 const route = useRoute()
 const router = useRouter()
-const orderId = Number(route.params.orderId)
+const orderId = computed(() => Number(route.params.orderId))
+
+const isMobilePatrol = computed(() => route.path.startsWith('/m/'))
+
+const patrolBackTarget = (): RouteLocationRaw => {
+  if (isMobilePatrol.value) {
+    return '/m/patrol'
+  }
+  return { path: '/cmms/inspection', query: { tab: 'order' } }
+}
+
+const patrolExecutePath = (id: number) =>
+  isMobilePatrol.value ? `/m/execute/${id}` : `/cmms/inspection/work-order/execute/${id}`
 
 const detail = ref<IwoFull | null>(null)
 const loading = ref(false)
@@ -13,7 +25,7 @@ const loading = ref(false)
 const load = async () => {
   loading.value = true
   try {
-    const res: any = await iwoDetail(orderId)
+    const res: any = await iwoDetail(orderId.value)
     detail.value = res.data
   } finally {
     loading.value = false
@@ -32,7 +44,7 @@ const typeLabel: Record<string, string> = {
 
 <template>
   <div class="page" v-loading="loading">
-    <el-page-header @back="router.push({ path: '/cmms/inspection', query: { tab: 'order' } })" content="巡检结果详情" />
+    <el-page-header @back="router.push(patrolBackTarget())" content="巡检结果详情" />
 
     <template v-if="detail">
       <el-descriptions :column="2" border class="block" title="工单信息">
@@ -82,7 +94,9 @@ const typeLabel: Record<string, string> = {
         </el-table>
       </el-card>
 
-      <el-button type="primary" style="margin-top: 12px" @click="router.push(`/cmms/inspection/work-order/execute/${orderId}`)">返回执行</el-button>
+      <el-button type="primary" style="margin-top: 12px" @click="router.push(patrolExecutePath(orderId))"
+        >返回执行</el-button
+      >
     </template>
   </div>
 </template>

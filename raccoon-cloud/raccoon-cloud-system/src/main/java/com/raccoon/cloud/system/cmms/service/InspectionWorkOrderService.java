@@ -22,6 +22,7 @@ import com.raccoon.cloud.system.cmms.vo.InspectionWorkOrderStepVO;
 import com.raccoon.cloud.system.mapper.UserMapper;
 import com.raccoon.cloud.system.model.User;
 import com.raccoon.cloud.system.service.UserService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -43,6 +44,7 @@ import java.util.stream.Collectors;
 /**
  * 巡检工单：创建、按计划派发、下发、取消、分页、执行、采集、扫码关联设备。
  */
+@Slf4j
 @Service
 public class InspectionWorkOrderService {
 
@@ -176,6 +178,69 @@ public class InspectionWorkOrderService {
         orderMapper.updateById(o);
     }
 
+    /**
+     * 任务到点自动派发：将执行人同步到「待下发」工单并下发（供手机端待执行列表）。
+     *
+     * @return 是否实际执行了下发
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean dispatchForScheduledTask(Long workOrderId, Long execUserId) {
+        if (workOrderId == null) {
+            return false;
+        }
+        InspectionWorkOrder o = orderMapper.selectById(workOrderId);
+        if (o == null || o.getStatus() != InspectionWorkOrderStatus.PENDING_ISSUE) {
+            return false;
+        }
+        if (execUserId != null) {
+            o.setInspectorId(execUserId);
+            o.setInspectorName(resolveInspectorName(execUserId));
+            orderMapper.updateById(o);
+        }
+        InspectionWorkOrderIdRequest issueReq = new InspectionWorkOrderIdRequest();
+        issueReq.setId(workOrderId);
+        issue(issueReq);
+        log.info("巡检工单到点下发 orderId={} inspectorId={}（App 推送待接入）", workOrderId, o.getInspectorId());
+        return true;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void linkWorkOrderToTask(Long taskId, Long workOrderId) {
+        InspectionWorkOrder o = orderMapper.selectById(workOrderId);
+        if (o == null) {
+            throw new IllegalArgumentException("巡检工单不存在");
+        }
+        if (o.getTaskId() != null && !o.getTaskId().equals(taskId)) {
+            throw new IllegalArgumentException("该巡检工单已关联其他任务");
+        }
+        InspectionTask t = taskMapper.selectById(taskId);
+        if (t == null) {
+            return;
+        }
+        o.setTaskId(taskId);
+        if (t.getPlanId() != null) {
+            o.setPlanId(t.getPlanId());
+        }
+        if (o.getStatus() != null && o.getStatus() == InspectionWorkOrderStatus.PENDING_ISSUE && t.getExecUserId() != null) {
+            o.setInspectorId(t.getExecUserId());
+            o.setInspectorName(resolveInspectorName(t.getExecUserId()));
+        }
+        orderMapper.updateById(o);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void unlinkTaskFromWorkOrder(Long taskId, Long workOrderId) {
+        InspectionWorkOrder o = orderMapper.selectById(workOrderId);
+        if (o == null) {
+            return;
+        }
+        if (!Objects.equals(taskId, o.getTaskId())) {
+            return;
+        }
+        o.setTaskId(null);
+        orderMapper.updateById(o);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void cancel(InspectionWorkOrderIdRequest req) {
         InspectionWorkOrder o = orderMapper.selectById(req.getId());
@@ -229,10 +294,65 @@ public class InspectionWorkOrderService {
             DeviceInfo dev = deviceInfoMapper.selectById(task.getDeviceId());
             InspectionWorkOrderCreateRequest req = buildDispatchWorkOrderRequest(plan, task, dev, dtf);
             Long orderId = create(req);
-            issue(new InspectionWorkOrderIdRequest(orderId));
+            InspectionWorkOrderIdRequest issueReq = new InspectionWorkOrderIdRequest();
+            issueReq.setId(orderId);
+            issue(issueReq);
             n++;
         }
         return n;
+    }
+
+    /**
+     * 单条巡检任务手动派发：已关联「待下发」工单的立即下发至任务执行人；未关联工单但有关联计划时，按该任务生成一单并下发。
+     * 执行人在手机端「待执行」列表中可见并填报。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void dispatchWorkOrderForTask(Long taskId) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("缺少任务ID");
+        }
+        InspectionTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new IllegalArgumentException("任务不存在");
+        }
+        if (task.getStatus() == null || task.getStatus() != 0) {
+            throw new IllegalArgumentException("仅待执行任务可派发工单");
+        }
+        if (task.getWorkOrderId() != null) {
+            boolean issued = dispatchForScheduledTask(task.getWorkOrderId(), task.getExecUserId());
+            if (!issued) {
+                InspectionWorkOrder wo = orderMapper.selectById(task.getWorkOrderId());
+                if (wo == null) {
+                    throw new IllegalArgumentException("关联的巡检工单不存在");
+                }
+                if (wo.getStatus() == InspectionWorkOrderStatus.PENDING_ISSUE) {
+                    throw new IllegalStateException("工单下发失败，请稍后重试");
+                }
+                if (wo.getStatus() == InspectionWorkOrderStatus.PENDING_EXEC
+                        || wo.getStatus() == InspectionWorkOrderStatus.RUNNING) {
+                    throw new IllegalArgumentException("工单已下发至执行人，请在手机端填报");
+                }
+                throw new IllegalArgumentException("当前工单状态不可派发");
+            }
+            return;
+        }
+        if (task.getPlanId() == null) {
+            throw new IllegalArgumentException("请先为任务关联「待下发」巡检工单并保存，或绑定来源计划后派发");
+        }
+        InspectionPlan plan = planMapper.selectById(task.getPlanId());
+        if (plan == null) {
+            throw new IllegalArgumentException("来源计划不存在");
+        }
+        if (plan.getStatus() == null || plan.getStatus() != 1) {
+            throw new IllegalArgumentException("来源计划未启用，无法自动生成工单");
+        }
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        DeviceInfo dev = task.getDeviceId() != null ? deviceInfoMapper.selectById(task.getDeviceId()) : null;
+        InspectionWorkOrderCreateRequest req = buildDispatchWorkOrderRequest(plan, task, dev, dtf);
+        Long orderId = create(req);
+        InspectionWorkOrderIdRequest issueReq = new InspectionWorkOrderIdRequest();
+        issueReq.setId(orderId);
+        issue(issueReq);
     }
 
     public IPage<InspectionWorkOrder> page(InspectionWorkOrderPageRequest req) {

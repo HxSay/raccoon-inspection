@@ -14,3 +14,7 @@ ALTER TABLE inspection_task
     ADD COLUMN work_order_id BIGINT NULL COMMENT '关联巡检工单(inspection_work_order.id)' AFTER plan_id;
 
 CREATE INDEX idx_inspection_task_work_order ON inspection_task (work_order_id);
+
+-- 手动巡检任务可不关联设备；到点派发依赖 work_order_id + plan_execute_time
+ALTER TABLE inspection_task
+    MODIFY COLUMN device_id BIGINT NULL COMMENT '设备(device_info.id)，可空';

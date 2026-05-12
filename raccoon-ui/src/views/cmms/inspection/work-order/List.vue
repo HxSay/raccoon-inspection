@@ -90,6 +90,11 @@ const cancel = async (row: IwoRow) => {
     </el-radio-group>
 
     <template v-if="mode === 'my'">
+      <el-alert type="success" :closable="false" show-icon style="margin-bottom: 12px">
+        手机端执行人可打开
+        <router-link to="/m/patrol">我的巡检工单（/m/patrol）</router-link>
+        ，查看待执行工单并逐步填报。
+      </el-alert>
       <el-radio-group v-model="myTab" size="small" style="margin-bottom: 12px">
         <el-radio-button label="pending">待执行</el-radio-button>
         <el-radio-button label="running">执行中</el-radio-button>

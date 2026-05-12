@@ -89,7 +89,7 @@ export interface InspectionTask {
   taskCode?: string
   planId?: number
   workOrderId?: number
-  deviceId: number
+  deviceId?: number | null
   taskName: string
   execUserId: number
   planExecuteTime: string
@@ -203,9 +203,13 @@ export const cmmsPlanDelete = (id: number) =>
 export const cmmsPlanGenerateTasks = (planId: number) =>
   request({ url: '/cmms/inspection/plan/generateTasks', method: 'post', params: { planId } })
 
-/** 按计划向待执行任务派发巡检工单（每任务一单并自动下发） */
+/** 按计划向待执行任务批量派发巡检工单（每任务一单并自动下发） */
 export const cmmsDispatchWorkOrdersFromPlan = (planId: number) =>
   request({ url: '/cmms/inspection/workOrder/dispatchFromPlan', method: 'post', data: { planId } })
+
+/** 单条巡检任务手动派发巡检工单至任务执行人（手机端填报） */
+export const cmmsTaskDispatchWorkOrder = (taskId: number) =>
+  request({ url: '/cmms/inspection/task/dispatchWorkOrder', method: 'post', data: { taskId } })
 
 export const cmmsTaskPage = (data: {
   page?: number
