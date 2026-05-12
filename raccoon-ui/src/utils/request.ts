@@ -95,8 +95,6 @@ service.interceptors.response.use(
           }
         case 403:
           ElMessage.error('没有权限访问该资源')
-          // 跳转到首页
-          router.push('/')
           break
         case 404:
           ElMessage.error('请求的资源不存在')

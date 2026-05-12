@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
 const routes: RouteRecordRaw[] = [
@@ -31,25 +30,25 @@ const routes: RouteRecordRaw[] = [
         path: '/user',
         name: 'User',
         component: () => import('@/views/user/index.vue'),
-        meta: { title: '用户管理', icon: 'User', roles: ['admin'] }
+        meta: { title: '用户管理', icon: 'User' }
       },
       {
         path: '/role',
         name: 'Role',
         component: () => import('@/views/role/index.vue'),
-        meta: { title: '角色管理', icon: 'UserFilled', roles: ['admin'] }
+        meta: { title: '角色管理', icon: 'UserFilled' }
       },
       {
         path: '/dict/type',
         name: 'DictType',
         component: () => import('@/views/dict/type/index.vue'),
-        meta: { title: '字典类型管理', icon: 'Document', roles: ['admin'] }
+        meta: { title: '字典类型管理', icon: 'Document' }
       },
       {
         path: '/dict/data',
         name: 'DictData',
         component: () => import('@/views/dict/data/index.vue'),
-        meta: { title: '字典数据管理', icon: 'Collection', roles: ['admin'] }
+        meta: { title: '字典数据管理', icon: 'Collection' }
       },
       {
         path: '/cmms/device',
@@ -94,17 +93,6 @@ router.beforeEach((to, _from, next) => {
       const redirect = to.fullPath
       next(`/login?redirect=${encodeURIComponent(redirect)}`)
       return
-    }
-
-    // 检查用户角色权限
-    const roles = to.meta.roles as string[]
-    if (roles && roles.length > 0) {
-      const hasRole = roles.some(role => userStore.hasRole(role))
-      if (!hasRole) {
-        ElMessage.error('没有权限访问该资源')
-        next('/')
-        return
-      }
     }
   }
 

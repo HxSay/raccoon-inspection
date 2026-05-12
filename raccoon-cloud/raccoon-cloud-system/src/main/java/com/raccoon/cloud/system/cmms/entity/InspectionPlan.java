@@ -3,6 +3,8 @@ package com.raccoon.cloud.system.cmms.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -18,9 +20,15 @@ public class InspectionPlan {
     private Integer cycleType;
     private Integer cycleValue;
     private Long execUserId;
+    /** 与前端 Element Plus value-format 一致 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime startTime;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime endTime;
     private Integer status;
+    /** 仅输出，避免列表回传 createTime 导致反序列化失败 */
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private LocalDateTime createTime;
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private LocalDateTime updateTime;
 }

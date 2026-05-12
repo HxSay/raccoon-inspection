@@ -144,7 +144,19 @@ const openPlan = (row?: InspectionPlan) => {
 
 const savePlan = async () => {
   syncDeviceIdsJson()
-  await cmmsPlanSave(planForm.value)
+  const p = planForm.value
+  const body: InspectionPlan = {
+    planName: p.planName,
+    deviceIds: p.deviceIds,
+    cycleType: p.cycleType,
+    cycleValue: p.cycleValue,
+    execUserId: p.execUserId,
+    startTime: p.startTime,
+    status: p.status ?? 1
+  }
+  if (p.id != null) body.id = p.id
+  if (p.endTime) body.endTime = p.endTime
+  await cmmsPlanSave(body)
   ElMessage.success('保存成功')
   planDialog.value = false
   loadPlans()
