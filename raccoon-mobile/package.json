@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "智能巡检移动端（Vue3 + Vite + Vant + Pinia），与 raccoon-ui 平级",
+  "description": "Raccoon inspection mobile (Vue3 + Vite + Vant + Pinia); sibling to raccoon-ui",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
