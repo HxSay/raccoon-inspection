@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import { Sky } from 'three/examples/jsm/objects/Sky.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
-import { createGrassTexture, createTerrainRoughnessTexture, createGalvanizedMetalTexture, createConcreteTexture, disposeTexture } from './textures'
+import { createTerrainRoughnessTexture, createGalvanizedMetalTexture, createConcreteTexture, disposeTexture } from './textures'
 
 /**
- * 写实风格电网山地巡检场景：程序化地形起伏 + 贴图、角钢塔、导线、物理天空与 IBL 环境光。
+ * 写实风格电网巡检场景：程序化硬化地表（与站内混凝土贴图体系一致）、丘陵微起伏、角钢塔、导线、物理天空与 IBL。
  * 依赖 WebGLRenderer 生成 PMREM（调用方传入 renderer）。
  */
 
@@ -253,26 +253,28 @@ function buildLineBetweenTowers(
 
 export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSceneBundle {
   const scene = new THREE.Scene()
-  scene.fog = new THREE.FogExp2(0xc5d8ea, 0.00105)
+  scene.fog = new THREE.FogExp2(0xd0d8e0, 0.00112)
 
   const world = new THREE.Group()
   scene.add(world)
 
-  const grass = createGrassTexture()
+  const yardMap = createConcreteTexture()
+  yardMap.repeat.set(72, 72)
   const groundRough = createTerrainRoughnessTexture()
   const metal = createGalvanizedMetalTexture()
   const conc = createConcreteTexture()
 
   const terrainGeo = new THREE.PlaneGeometry(720, 720, 160, 160)
   terrainGeo.rotateX(-Math.PI / 2)
-  displaceTerrain(terrainGeo, 0.62)
+  displaceTerrain(terrainGeo, 0.38)
 
   const terrainMat = new THREE.MeshStandardMaterial({
-    map: grass,
+    map: yardMap,
     roughnessMap: groundRough,
-    roughness: 1,
-    metalness: 0,
-    envMapIntensity: 0.06
+    color: 0x8a9098,
+    roughness: 0.92,
+    metalness: 0.03,
+    envMapIntensity: 0.1
   })
   const terrain = new THREE.Mesh(terrainGeo, terrainMat)
   terrain.receiveShadow = true
@@ -350,7 +352,7 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   const homePosition = new THREE.Vector3(0, 3, 40)
   const terminalPosition = new THREE.Vector3(-42, 0, 72)
 
-  const textures: THREE.Texture[] = [grass, groundRough, metal, conc]
+  const textures: THREE.Texture[] = [yardMap, groundRough, metal, conc]
 
   const dispose = () => {
     pmrem.dispose()

@@ -75,6 +75,8 @@ const reportTableRows = computed(() => {
   })
 })
 
+let substationLoadFailed = false
+
 let renderer: THREE.WebGLRenderer | null = null
 let sceneBundle: ReturnType<typeof createPowerlineScene> | null = null
 let substationBundle: ReturnType<typeof createSubstationScene> | null = null
@@ -139,9 +141,15 @@ watch(viewMode, (mode, prev) => {
   applyViewMode(prev)
 })
 
-function ensureSubstationBundle() {
-  if (!renderer || substationBundle) return
-  substationBundle = createSubstationScene(renderer)
+function ensureSubstationBundle(): void {
+  if (!renderer || substationBundle || substationLoadFailed) return
+  try {
+    substationBundle = createSubstationScene(renderer)
+  } catch (e) {
+    console.error('[substation]', e)
+    substationLoadFailed = true
+    ElMessage.error('变电站场景初始化失败，请查看控制台')
+  }
 }
 
 function applySubstationCamera() {
@@ -193,9 +201,10 @@ watch(sceneTab, (tab, prev) => {
     ensureSubstationBundle()
     applySubstationCamera()
   } else if (tab === 'patrol' && prev === 'substation') {
+    substationLoadFailed = false
     restorePatrolCameraAfterSubstation()
   }
-})
+}, { flush: 'sync' })
 
 function applyNetworkSim() {
   stateReport?.setOnline(!simulateDisconnect.value)
@@ -338,10 +347,16 @@ function initThree(): () => void {
     drone?.tick(dt)
     controls?.update()
     if (!renderer || !camera) return
-    if (sceneTab.value === 'patrol' && sceneBundle) {
+    const tab = sceneTab.value
+    if (tab === 'substation') {
+      ensureSubstationBundle()
+      if (substationBundle) {
+        renderer.render(substationBundle.scene, camera)
+      } else if (sceneBundle) {
+        renderer.render(sceneBundle.scene, camera)
+      }
+    } else if (tab === 'patrol' && sceneBundle) {
       renderer.render(sceneBundle.scene, camera)
-    } else if (sceneTab.value === 'substation' && substationBundle) {
-      renderer.render(substationBundle.scene, camera)
     }
   }
   tick()
@@ -376,6 +391,7 @@ function initThree(): () => void {
     camera = null
     substationBundle?.dispose()
     substationBundle = null
+    substationLoadFailed = false
     disposeScene()
     sceneBundle = null
     stateReport = null
@@ -441,8 +457,8 @@ function try65535Demo() {
       <section v-if="sceneTab === 'patrol'" class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
         <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">场景视角</div>
         <el-radio-group v-model="viewMode" size="small" class="flex flex-col gap-1.5 font-mono">
-          <el-radio label="aerial">鸟瞰（默认轨道）</el-radio>
-          <el-radio label="ground">地面观察（人眼高度）</el-radio>
+          <el-radio value="aerial">鸟瞰（默认轨道）</el-radio>
+          <el-radio value="ground">地面观察（人眼高度）</el-radio>
         </el-radio-group>
         <p class="mt-1.5 text-[10px] leading-snug text-[var(--ia-muted)]">
           切至地面时为固定站位；从鸟瞰进入地面会记住当前机位，切回鸟瞰时恢复。
@@ -481,8 +497,8 @@ function try65535Demo() {
       <el-card shadow="never" class="ia-card">
         <template #header>部署模式</template>
         <el-radio-group v-model="deployMode" size="small" class="flex flex-col gap-2 font-mono">
-          <el-radio label="groundStation">地面站（+100ms RTT）</el-radio>
-          <el-radio label="onboard">机载（+20ms RTT）</el-radio>
+          <el-radio value="groundStation">地面站（+100ms RTT）</el-radio>
+          <el-radio value="onboard">机载（+20ms RTT）</el-radio>
         </el-radio-group>
         <p class="mt-2 text-[10px] leading-snug text-[var(--ia-muted)]">
           云端固定 200ms + 模式附加延迟（<code class="text-[var(--ia-accent)]">constants.ts</code>）
@@ -518,8 +534,8 @@ function try65535Demo() {
         class="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 rounded border border-[var(--ia-border)] bg-[#0a1018]/95 px-1 py-0.5 shadow-md backdrop-blur-sm"
       >
         <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg font-mono">
-          <el-radio-button label="patrol">输电巡检场地</el-radio-button>
-          <el-radio-button label="substation">变电站场景</el-radio-button>
+          <el-radio-button value="patrol">输电巡检场地</el-radio-button>
+          <el-radio-button value="substation">变电站场景</el-radio-button>
         </el-radio-group>
       </div>
       <canvas ref="canvasRef" class="h-full w-full touch-none" />

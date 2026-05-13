@@ -43,8 +43,10 @@ function addSagWire(
   radius: number,
   sagFactor: number
 ): void {
+  const dist = a.distanceTo(b)
+  if (dist < 0.08) return
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
-  mid.y -= a.distanceTo(b) * sagFactor
+  mid.y -= dist * sagFactor
   const curve = new THREE.CatmullRomCurve3([a.clone(), mid, b.clone()])
   const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 28, radius, 6, false), mat)
   tube.castShadow = true
@@ -320,6 +322,7 @@ export function createSubstationScene(renderer: THREE.WebGLRenderer): Substation
   world.add(ground)
 
   const wallH = 1.35
+  const wallT = 0.38
   const extent = 44
   const wallY = wallH * 0.5
   const wallMat = concMat
