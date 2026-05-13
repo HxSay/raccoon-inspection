@@ -45,6 +45,17 @@ function findClosestU(curve: THREE.CatmullRomCurve3, target: THREE.Vector3, samp
   return best
 }
 
+export interface MissionVisualHooks {
+  /** 起飞前自检已通过（可开舱门） */
+  onPreflightPassed?: () => void
+  /** 已进入自主飞行主循环（可全速离巢） */
+  onMissionFlightBegin?: () => void
+  /** 进入返航段 */
+  onRthBegin?: () => void
+  /** 任务完全结束、已降落（可关舱门） */
+  onMissionEnded?: () => void
+}
+
 export interface MissionRunnerOptions {
   drone: M300DroneModel
   /** 航迹标记挂接到场景该组下（与地形同级） */
@@ -60,6 +71,8 @@ export interface MissionRunnerOptions {
   onPhoto: (p: PhotoCaptureMeta, ai: AiDefectResult) => void
   onComplete: (r: MissionReport) => void
   onError: (e: Error) => void
+  /** 纯可视化钩子：不改变航点、转换、遥测等业务逻辑 */
+  visualHooks?: MissionVisualHooks
 }
 
 export class MissionRunner {
@@ -87,6 +100,8 @@ export class MissionRunner {
   private missionPath: CloudPathPoint[] = []
   private djiMissionJson = ''
   private pathViz: FlightPathVisualization | null = null
+  private takeoffBlend = 0
+  private firstFlightFrame = true
 
   constructor(opts: MissionRunnerOptions) {
     this.opts = opts
@@ -118,6 +133,8 @@ export class MissionRunner {
     this.aiResults = []
     this.telemetrySent = 0
     this.capturing = false
+    this.takeoffBlend = 0
+    this.firstFlightFrame = true
     this.opts.drone.setRotorRunning(false)
     this.opts.onStatus('已重置')
   }
@@ -159,6 +176,7 @@ export class MissionRunner {
         batteryPercent: this.opts.getBattery(),
         rtkMode: this.opts.getRtkMode()
       })
+      this.opts.visualHooks?.onPreflightPassed?.()
 
       const pts = this.missionPath.map((p) => new THREE.Vector3(p.x, p.y, p.z))
       this.curveMission = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.4)
@@ -179,9 +197,11 @@ export class MissionRunner {
 
       this.opts.stateReport.start()
       this.phase = 'mission'
+      this.takeoffBlend = 0
+      this.firstFlightFrame = true
       this.opts.drone.setRotorRunning(true)
       this.opts.onStatus('自主巡检中（CatmullRom 平滑航线）')
-      this.lastPos.copy(this.curveMission.getPointAt(0))
+      this.lastPos.copy(this.opts.home)
       this.lastTs = performance.now()
       this.rafId = requestAnimationFrame(this.loop)
     } catch (e) {
@@ -219,8 +239,25 @@ export class MissionRunner {
     const curve = this.phase === 'mission' ? this.curveMission! : this.curveRth!
     const len = this.phase === 'mission' ? this.lenMission : this.lenRth
 
-    const pos = curve.getPointAt(Math.min(1, this.u))
-    const tan = curve.getTangentAt(Math.min(1, this.u))
+    let pos = curve.getPointAt(Math.min(1, this.u))
+    let tan = curve.getTangentAt(Math.min(1, this.u))
+
+    if (this.phase === 'mission' && this.takeoffBlend < 1 && !this.paused && !this.capturing) {
+      this.takeoffBlend = Math.min(1, this.takeoffBlend + dt * 0.72)
+      const tb = THREE.MathUtils.smoothstep(this.takeoffBlend, 0, 1)
+      const curvePos = curve.getPointAt(Math.min(1, this.u))
+      pos = new THREE.Vector3().lerpVectors(this.opts.home, curvePos, tb)
+      const toCurve = curvePos.clone().sub(this.opts.home)
+      if (toCurve.lengthSq() > 1e-6) toCurve.normalize()
+      tan = new THREE.Vector3().lerpVectors(toCurve, tan, tb).normalize()
+    }
+
+    if (this.phase === 'rth') {
+      const tl = THREE.MathUtils.smoothstep(this.u, 0.72, 1)
+      const hangar = this.opts.home.clone().add(new THREE.Vector3(0, 1.45, 0))
+      pos = new THREE.Vector3().lerpVectors(pos, hangar, tl)
+    }
+
     const yaw = Math.atan2(tan.x, tan.z)
 
     if (!this.paused && !this.capturing) {
@@ -235,6 +272,11 @@ export class MissionRunner {
 
       const drain = 0.015 * spd * dt
       this.opts.setBattery(Math.max(0, this.opts.getBattery() - drain))
+    }
+
+    if (this.firstFlightFrame && this.phase === 'mission') {
+      this.firstFlightFrame = false
+      this.opts.visualHooks?.onMissionFlightBegin?.()
     }
 
     this.opts.drone.setPose(pos, yaw)
@@ -315,6 +357,7 @@ export class MissionRunner {
   }
 
   private beginRth(from: THREE.Vector3): void {
+    this.opts.visualHooks?.onRthBegin?.()
     this.opts.onStatus('航线段完成，自动返航（RTH）…')
     this.phase = 'rth'
     this.u = 0
@@ -327,6 +370,7 @@ export class MissionRunner {
 
   private finishMission(): void {
     this.phase = 'done'
+    this.opts.visualHooks?.onMissionEnded?.()
     this.stopLoop()
     this.opts.drone.setRotorRunning(false)
     this.opts.drone.setPose(this.opts.home.clone(), 0)

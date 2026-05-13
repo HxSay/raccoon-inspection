@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /**
- * M300 边缘自主巡检 — 3D 仿真主界面
- * 左：任务与异常模拟；中：Three 视口；右：实时遥测
+ * M300 边缘自主巡检 — 3D 仿真主界面（工业风 UI + 写实场景 + 机巢 / 边缘终端）
  */
 import { ref, shallowRef, onMounted, onBeforeUnmount, computed } from 'vue'
 import * as THREE from 'three'
@@ -14,6 +13,9 @@ import { StateReportService } from '@/sim/stateReport'
 import type { DeployMode, MissionReport, TelemetryPayload } from '@/sim/types'
 import { assertWaypointLimit } from '@/sim/edgeService'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
+import { DroneNest } from '@/sim/droneNest'
+import { EdgeTerminal3D } from '@/sim/edgeTerminal'
+import { createEdgeMetricsSimulator, type EdgeTerminalMetrics } from '@/sim/edgeMetrics'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -29,6 +31,13 @@ const missionJson = ref('')
 const telemetry = shallowRef<TelemetryPayload | null>(null)
 const cloudReceiveCount = ref(0)
 const offlineBufferHint = ref(0)
+
+const edgeMetrics = shallowRef<EdgeTerminalMetrics>({
+  cpuPercent: 26,
+  storagePercent: 42,
+  networkMbps: 14,
+  networkLabel: '链路正常'
+})
 
 const reportOpen = ref(false)
 const lastReport = shallowRef<MissionReport | null>(null)
@@ -52,8 +61,11 @@ let sceneBundle: ReturnType<typeof createPowerlineScene> | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let controls: OrbitControls | null = null
 let drone: M300DroneModel | null = null
+let nest: DroneNest | null = null
+let terminal: EdgeTerminal3D | null = null
 let stateReport: StateReportService | null = null
 let missionRunner: MissionRunner | null = null
+let edgeSim = createEdgeMetricsSimulator(() => !simulateDisconnect.value)
 let rafMain = 0
 let disposeResize: (() => void) | null = null
 
@@ -91,6 +103,18 @@ function onComplete(r: MissionReport) {
 function onError(e: Error) {
   ElMessage.error(e.message)
   taskStatus.value = '异常终止'
+  nest?.setDoorTarget(0)
+}
+
+function buildVisualHooks() {
+  return {
+    onPreflightPassed: () => {
+      nest?.setDoorTarget(1)
+    },
+    onMissionEnded: () => {
+      nest?.setDoorTarget(0)
+    }
+  }
 }
 
 function initThree(): () => void {
@@ -100,28 +124,51 @@ function initThree(): () => void {
   const w = canvas.clientWidth
   const h = canvas.clientHeight
 
-  sceneBundle = createPowerlineScene()
-  const { scene, world, homePosition, dispose: disposeScene } = sceneBundle
-
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
   renderer.setSize(w, h)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 0.92
+  renderer.outputColorSpace = THREE.SRGBColorSpace
 
-  camera = new THREE.PerspectiveCamera(55, w / h, 0.5, 800)
-  camera.position.set(-80, 120, 160)
+  sceneBundle = createPowerlineScene(renderer)
+  const { scene, world, homePosition, terminalPosition, dispose: disposeScene } = sceneBundle
+
+  camera = new THREE.PerspectiveCamera(52, w / h, 0.4, 1200)
+  camera.position.set(-95, 135, 175)
   camera.lookAt(homePosition)
 
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
-  controls.dampingFactor = 0.06
+  controls.dampingFactor = 0.08
   controls.target.copy(homePosition)
-  controls.minDistance = 40
-  controls.maxDistance = 420
+  controls.minDistance = 35
+  controls.maxDistance = 520
   controls.maxPolarAngle = Math.PI * 0.49
+  controls.rotateSpeed = 0.65
+  controls.zoomSpeed = 0.85
+  controls.panSpeed = 0.78
+  controls.screenSpacePanning = true
+  controls.mouseButtons = {
+    LEFT: THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.PAN
+  }
+
+  nest = new DroneNest()
+  const dockOffset = new THREE.Vector3(0, 1.35, 2.2)
+  nest.root.position.copy(homePosition).sub(dockOffset)
+  nest.setDoorTarget(0)
+  world.add(nest.root)
+
+  terminal = new EdgeTerminal3D()
+  terminal.root.position.copy(terminalPosition)
+  world.add(terminal.root)
 
   drone = new M300DroneModel()
+  void drone.tryLoadExternalModel('/models/m300.glb')
   drone.setPose(homePosition.clone(), 0)
   scene.add(drone.root)
 
@@ -148,13 +195,18 @@ function initThree(): () => void {
       onPhoto()
     },
     onComplete,
-    onError
+    onError,
+    visualHooks: buildVisualHooks()
   })
+
+  edgeSim = createEdgeMetricsSimulator(() => !simulateDisconnect.value)
 
   const clock = new THREE.Clock()
   const tick = () => {
     rafMain = requestAnimationFrame(tick)
     const dt = clock.getDelta()
+    nest?.tick(dt)
+    edgeMetrics.value = edgeSim.tick(dt)
     drone?.tick(dt)
     controls?.update()
     if (renderer && sceneBundle && camera) {
@@ -182,7 +234,12 @@ function initThree(): () => void {
     missionRunner = null
     controls?.dispose()
     controls = null
+    drone?.dispose()
     drone = null
+    nest?.dispose()
+    nest = null
+    terminal?.dispose()
+    terminal = null
     renderer?.dispose()
     renderer = null
     camera = null
@@ -215,6 +272,7 @@ function resetMission() {
   batteryPercent.value = 96
   telemetry.value = null
   cloudReceiveCount.value = 0
+  nest?.setDoorTarget(0)
   if (sceneBundle && drone) {
     drone.setPose(sceneBundle.homePosition.clone(), 0)
     drone.setGimbal(0, 0)
@@ -237,110 +295,132 @@ function try65535Demo() {
 </script>
 
 <template>
-  <div class="flex h-full w-full min-h-0 flex-col bg-slate-950 text-slate-100 md:flex-row">
+  <div
+    class="industrial-app flex h-full w-full min-h-0 flex-col border-t border-[var(--ia-border)] text-[#c8d4e0] md:flex-row"
+  >
     <aside
-      class="order-2 flex w-full shrink-0 flex-col gap-3 overflow-y-auto border-slate-800 p-3 md:order-1 md:w-72 md:border-r lg:w-80"
+      class="order-2 flex w-full shrink-0 flex-col gap-2.5 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-3 md:order-1 md:w-80 md:border-r lg:w-[22rem]"
     >
-      <div class="text-sm font-semibold text-sky-300">边缘仿真控制台</div>
-      <el-card shadow="never" class="!border-slate-700 !bg-slate-900">
+      <header class="border-b border-[var(--ia-border)] pb-2 font-mono text-xs tracking-wide text-[var(--ia-accent)]">
+        RACCOON EDGE SIM / 边缘巡检仿真
+      </header>
+
+      <section class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
+        <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">边缘控制终端</div>
+        <div class="grid grid-cols-2 gap-2 font-mono text-[11px]">
+          <div>
+            <span class="text-[var(--ia-muted)]">CPU</span>
+            <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.cpuPercent.toFixed(1) }} %</div>
+          </div>
+          <div>
+            <span class="text-[var(--ia-muted)]">存储</span>
+            <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.storagePercent.toFixed(1) }} %</div>
+          </div>
+          <div class="col-span-2">
+            <span class="text-[var(--ia-muted)]">网络</span>
+            <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.networkMbps.toFixed(1) }} Mbps</div>
+            <div class="text-[10px] text-[#6a8aa8]">{{ edgeMetrics.networkLabel }}</div>
+          </div>
+        </div>
+      </section>
+
+      <el-card shadow="never" class="ia-card">
         <template #header>任务状态</template>
-        <p class="mb-2 text-xs leading-relaxed text-slate-400">{{ taskStatus }}</p>
+        <p class="mb-2 font-mono text-[11px] leading-relaxed text-[var(--ia-muted)]">{{ taskStatus }}</p>
         <div class="flex flex-wrap gap-2">
-          <el-button type="primary" size="small" @click="startMission">启动巡检</el-button>
-          <el-button size="small" @click="togglePause">暂停 / 继续</el-button>
-          <el-button size="small" @click="resetMission">重置</el-button>
+          <el-button type="primary" size="small" class="!font-mono" @click="startMission">启动巡检</el-button>
+          <el-button size="small" class="!font-mono" @click="togglePause">暂停 / 继续</el-button>
+          <el-button size="small" class="!font-mono" @click="resetMission">重置</el-button>
         </div>
       </el-card>
 
-      <el-card shadow="never" class="!border-slate-700 !bg-slate-900">
-        <template #header>部署模式（影响附加通信延迟）</template>
-        <el-radio-group v-model="deployMode" size="small" class="flex flex-col gap-2">
-          <el-radio label="groundStation">地面站（+100ms）</el-radio>
-          <el-radio label="onboard">机载（+20ms）</el-radio>
+      <el-card shadow="never" class="ia-card">
+        <template #header>部署模式</template>
+        <el-radio-group v-model="deployMode" size="small" class="flex flex-col gap-2 font-mono">
+          <el-radio label="groundStation">地面站（+100ms RTT）</el-radio>
+          <el-radio label="onboard">机载（+20ms RTT）</el-radio>
         </el-radio-group>
-        <p class="mt-2 text-xs text-slate-500">
-          云端固定 200ms + 模式附加延迟，见 <code class="text-sky-600">constants.ts</code>
+        <p class="mt-2 text-[10px] leading-snug text-[var(--ia-muted)]">
+          云端固定 200ms + 模式附加延迟（<code class="text-[var(--ia-accent)]">constants.ts</code>）
         </p>
       </el-card>
 
-      <el-card shadow="never" class="!border-slate-700 !bg-slate-900">
-        <template #header>异常模拟</template>
+      <el-card shadow="never" class="ia-card">
+        <template #header>异常注入</template>
         <el-switch v-model="simulateDisconnect" active-text="断网" @change="applyNetworkSim" />
-        <p class="mt-1 text-xs text-slate-500">断网时遥测写入缓存，恢复链路后由 StateReport 自动补报</p>
-        <el-divider class="!my-2" />
+        <p class="mt-1 text-[10px] text-[var(--ia-muted)]">断网时遥测缓存，恢复后补报</p>
+        <el-divider class="!my-2 !border-[var(--ia-border)]" />
         <el-switch v-model="simulateLowBattery" active-text="低电量起飞" />
-        <p class="mt-1 text-xs text-slate-500">自检使用 15% 电量，应提示「电量不足，无法起飞!」</p>
-        <el-divider class="!my-2" />
+        <p class="mt-1 text-[10px] text-[var(--ia-muted)]">自检 15% →「电量不足，无法起飞!」</p>
+        <el-divider class="!my-2 !border-[var(--ia-border)]" />
         <el-switch v-model="simulateRtkLost" active-text="非 RTK 固定解" />
-        <p class="mt-1 text-xs text-slate-500">mode≠2，应提示「未切换到RTK定位…」</p>
+        <p class="mt-1 text-[10px] text-[var(--ia-muted)]">mode≠2 →「未切换到RTK定位…」</p>
       </el-card>
 
-      <el-card shadow="never" class="!border-slate-700 !bg-slate-900">
-        <template #header>航点上限校验（65535）</template>
-        <el-button size="small" @click="try65535Demo">触发超限校验</el-button>
+      <el-card shadow="never" class="ia-card">
+        <template #header>航点上限（65535）</template>
+        <el-button size="small" class="!font-mono" @click="try65535Demo">触发校验</el-button>
       </el-card>
 
-      <el-collapse v-if="missionJson" class="sim-collapse">
-        <el-collapse-item title="大疆 Waypoint 任务 JSON（预览）" name="1">
-          <pre class="max-h-48 overflow-auto text-[10px] leading-snug text-emerald-600">{{ missionJson }}</pre>
+      <el-collapse v-if="missionJson" class="ia-collapse">
+        <el-collapse-item title="Waypoint 任务 JSON" name="1">
+          <pre class="max-h-44 overflow-auto p-1 font-mono text-[10px] leading-snug text-[#6ecf9b]">{{ missionJson }}</pre>
         </el-collapse-item>
       </el-collapse>
     </aside>
 
-    <main class="relative order-1 min-h-[42vh] flex-1 md:order-2 md:min-h-0">
+    <main class="relative order-1 min-h-[44vh] flex-1 border-[var(--ia-border)] bg-black md:order-2 md:min-h-0 md:border-x">
       <canvas ref="canvasRef" class="h-full w-full touch-none" />
       <div
-        class="pointer-events-none absolute bottom-2 left-2 rounded bg-black/50 px-2 py-1 text-[10px] text-slate-300"
+        class="pointer-events-none absolute bottom-2 left-2 rounded border border-[var(--ia-border)] bg-black/70 px-2 py-1 font-mono text-[10px] text-[var(--ia-muted)]"
       >
-        左键旋转 · 滚轮缩放 · 右键平移
+        左键旋转 · 滚轮缩放 · 右键平移 · 阻尼已开启
       </div>
     </main>
 
     <aside
-      class="order-3 flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-slate-800 p-3 md:w-64 md:border-l lg:w-72"
+      class="order-3 flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-3 md:w-72 md:border-l"
     >
-      <div class="text-sm font-semibold text-sky-300">实时状态</div>
-      <el-descriptions :column="1" border size="small" class="!bg-slate-900">
-        <el-descriptions-item label="位置 X">
-          {{ telemetry?.position.x.toFixed(1) ?? '—' }} m
-        </el-descriptions-item>
-        <el-descriptions-item label="位置 Y">
-          {{ telemetry?.position.y.toFixed(1) ?? '—' }} m
-        </el-descriptions-item>
-        <el-descriptions-item label="位置 Z">
-          {{ telemetry?.position.z.toFixed(1) ?? '—' }} m
-        </el-descriptions-item>
-        <el-descriptions-item label="飞行高度">{{ telemetry?.altitudeM.toFixed(1) ?? '—' }} m</el-descriptions-item>
-        <el-descriptions-item label="剩余电量">{{ telemetry?.batteryPercent.toFixed(1) ?? '—' }} %</el-descriptions-item>
-        <el-descriptions-item label="飞行速度">{{ telemetry?.speedMps.toFixed(1) ?? '—' }} m/s</el-descriptions-item>
-        <el-descriptions-item label="RTK 模式">{{ telemetry?.rtkMode ?? '—' }}（2=固定解）</el-descriptions-item>
-        <el-descriptions-item label="任务进度">
-          {{ telemetry ? (telemetry.missionProgress * 100).toFixed(0) + '%' : '—' }}
-        </el-descriptions-item>
+      <div class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">无人机遥测</div>
+      <el-descriptions :column="1" border size="small" class="ia-desc">
+        <el-descriptions-item label="X / m">{{ telemetry?.position.x.toFixed(1) ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="Y / m">{{ telemetry?.position.y.toFixed(1) ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="Z / m">{{ telemetry?.position.z.toFixed(1) ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="高度">{{ telemetry?.altitudeM.toFixed(1) ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="电量 %">{{ telemetry?.batteryPercent.toFixed(1) ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="速度">{{ telemetry?.speedMps.toFixed(1) ?? '—' }} m/s</el-descriptions-item>
+        <el-descriptions-item label="RTK">{{ telemetry?.rtkMode ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="进度">{{ telemetry ? (telemetry.missionProgress * 100).toFixed(0) + '%' : '—' }}</el-descriptions-item>
         <el-descriptions-item label="相位">{{ telemetry?.phase ?? '—' }}</el-descriptions-item>
       </el-descriptions>
-      <el-card shadow="never" class="!border-slate-700 !bg-slate-900">
-        <template #header>云端遥测接收</template>
-        <p class="text-xs text-slate-400">上报频率 {{ 1000 / TELEMETRY_INTERVAL_MS }}Hz（每 {{ TELEMETRY_INTERVAL_MS }}ms）</p>
-        <p class="text-sm">累计接收 <b class="text-sky-400">{{ cloudReceiveCount }}</b> 条</p>
-        <p class="text-xs text-amber-400">当前缓存 {{ offlineBufferHint }} 条</p>
+      <el-card shadow="never" class="ia-card">
+        <template #header>云端接收</template>
+        <p class="font-mono text-[10px] text-[var(--ia-muted)]">{{ 1000 / TELEMETRY_INTERVAL_MS }} Hz</p>
+        <p class="font-mono text-sm">COUNT <b class="text-[var(--ia-accent)]">{{ cloudReceiveCount }}</b></p>
+        <p class="font-mono text-[10px] text-amber-600/90">BUF {{ offlineBufferHint }}</p>
       </el-card>
     </aside>
 
-    <el-dialog v-model="reportOpen" title="巡检报告（仿真）" width="min(92vw, 720px)" destroy-on-close>
+    <el-dialog
+      v-model="reportOpen"
+      title="巡检报告"
+      class="ia-dialog"
+      width="min(92vw, 760px)"
+      destroy-on-close
+    >
       <template v-if="lastReport">
-        <el-descriptions :column="2" border size="small" class="mb-3">
-          <el-descriptions-item label="任务时长">{{ lastReport.durationSec.toFixed(1) }} s</el-descriptions-item>
-          <el-descriptions-item label="飞行距离">{{ lastReport.distanceM.toFixed(1) }} m</el-descriptions-item>
-          <el-descriptions-item label="拍摄张数">{{ lastReport.photos.length }}</el-descriptions-item>
-          <el-descriptions-item label="遥测上报">{{ lastReport.telemetrySent }} 条</el-descriptions-item>
+        <el-descriptions :column="2" border size="small" class="mb-3 font-mono">
+          <el-descriptions-item label="时长 / s">{{ lastReport.durationSec.toFixed(1) }}</el-descriptions-item>
+          <el-descriptions-item label="距离 / m">{{ lastReport.distanceM.toFixed(1) }}</el-descriptions-item>
+          <el-descriptions-item label="照片">{{ lastReport.photos.length }}</el-descriptions-item>
+          <el-descriptions-item label="遥测条数">{{ lastReport.telemetrySent }}</el-descriptions-item>
         </el-descriptions>
-        <div class="mb-2 text-xs text-slate-500">拍照元数据含伪 GPS 与云台角；原图不上云，仅本地 AI 结果如下表。</div>
-        <el-table :data="reportTableRows" stripe size="small" max-height="280">
-          <el-table-column prop="id" label="照片 ID" min-width="140" show-overflow-tooltip />
-          <el-table-column prop="wp" label="航点" width="60" />
-          <el-table-column prop="ai" label="AI 结果" min-width="120" />
-          <el-table-column prop="defect" label="结论" width="100" />
+        <div class="mb-2 text-[10px] text-[var(--ia-muted)]">元数据含伪 GPS / 云台角；原图不上云。</div>
+        <el-table :data="reportTableRows" stripe size="small" max-height="280" class="font-mono">
+          <el-table-column prop="id" label="ID" min-width="130" show-overflow-tooltip />
+          <el-table-column prop="wp" label="WP" width="52" />
+          <el-table-column prop="ai" label="AI" min-width="110" />
+          <el-table-column prop="defect" label="结论" width="92" />
         </el-table>
       </template>
     </el-dialog>
@@ -348,18 +428,58 @@ function try65535Demo() {
 </template>
 
 <style scoped>
-.sim-collapse {
-  --el-collapse-header-bg-color: #0f172a;
-  --el-collapse-content-bg-color: #020617;
-  border: 1px solid #334155;
-  border-radius: 6px;
+.ia-card {
+  --el-card-bg-color: #0c141c;
+  --el-card-border-color: var(--ia-border);
+  border-radius: 2px;
+}
+:deep(.ia-card .el-card__header) {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ia-muted);
+  border-bottom: 1px solid var(--ia-border);
+}
+:deep(.ia-card .el-card__body) {
+  padding: 10px;
+}
+
+.ia-collapse {
+  border: 1px solid var(--ia-border);
+  border-radius: 2px;
   overflow: hidden;
+  --el-collapse-header-bg-color: #0c141c;
+  --el-collapse-content-bg-color: #0a1018;
 }
-:deep(.el-card__header) {
-  padding: 8px 12px;
-  font-size: 13px;
+:deep(.ia-collapse .el-collapse-item__header) {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ia-muted);
 }
-:deep(.el-card__body) {
-  padding: 10px 12px;
+
+.ia-desc {
+  --el-descriptions-item-bordered-label-background: #0c141c;
+  --el-fill-color-blank: #0a1018;
+  --el-border-color-lighter: var(--ia-border);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+:deep(.ia-desc .el-descriptions__label) {
+  color: var(--ia-muted);
+}
+:deep(.ia-desc .el-descriptions__content) {
+  color: #e2edf5;
+}
+
+:deep(.ia-dialog) {
+  --el-dialog-bg-color: #0f1824;
+  --el-dialog-border-color: var(--ia-border);
+}
+:deep(.ia-dialog .el-dialog__title) {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  letter-spacing: 0.08em;
 }
 </style>

@@ -2,9 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  color-scheme: dark;
+}
+
 html,
 body,
 #app {
   height: 100%;
   width: 100%;
+}
+
+/* 工业监控后台：深色底 + 低饱和边框 */
+.industrial-app {
+  --ia-bg: #0a1018;
+  --ia-panel: #0f1824;
+  --ia-border: #1e3a52;
+  --ia-accent: #2a8fbd;
+  --ia-muted: #7a8fa3;
+  background: var(--ia-bg);
 }

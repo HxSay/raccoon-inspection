@@ -5,9 +5,9 @@ import type { CloudPathPoint } from './types'
  * 航点标记、拍照点高亮、已完成/未完成轨迹颜色区分。
  */
 
-const COLOR_DONE = 0x22c55e
-const COLOR_TODO = 0xf97316
-const COLOR_PREVIEW = 0x94a3b8
+const COLOR_DONE = 0x2d8a72
+const COLOR_TODO = 0xc45c26
+const COLOR_PREVIEW = 0x6b7c8f
 
 export class FlightPathVisualization {
   readonly group: THREE.Group
@@ -26,9 +26,11 @@ export class FlightPathVisualization {
     for (const p of points) {
       const g = new THREE.SphereGeometry(p.isPhoto ? 2.2 : 1.4, 12, 12)
       const mat = new THREE.MeshStandardMaterial({
-        color: p.isPhoto ? 0xfacc15 : 0x38bdf8,
-        emissive: p.isPhoto ? 0x854d0e : 0x0c4a6e,
-        emissiveIntensity: 0.25
+        color: p.isPhoto ? 0xd4a017 : 0x3a7ca5,
+        emissive: p.isPhoto ? 0x3d2e00 : 0x0a1f2e,
+        emissiveIntensity: 0.18,
+        metalness: 0.25,
+        roughness: 0.55
       })
       const m = new THREE.Mesh(g, mat)
       m.position.set(p.x, p.y, p.z)
@@ -38,7 +40,7 @@ export class FlightPathVisualization {
       if (p.isPhoto) {
         const ring = new THREE.Mesh(
           new THREE.TorusGeometry(3.2, 0.15, 8, 32),
-          new THREE.MeshBasicMaterial({ color: 0xfde047 })
+          new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.85 })
         )
         ring.position.copy(m.position)
         ring.rotation.x = Math.PI / 2
