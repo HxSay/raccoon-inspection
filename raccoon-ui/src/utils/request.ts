@@ -11,8 +11,8 @@ const service: AxiosInstance = axios.create({
 // 刷新 token 的请求队列
 let refreshTokenPromise: Promise<any> | null = null
 
-// 不需要添加 token 的路径
-const noTokenPaths = ['/api/auth/login', '/api/auth/register', '/api/auth/refresh']
+// 不需要添加 token 的路径（与 axios 的 config.url 一致，不含 baseURL 的 /api 前缀）
+const noTokenPaths = ['/auth/login', '/auth/register', '/auth/refresh']
 
 service.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
