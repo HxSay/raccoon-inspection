@@ -2,11 +2,12 @@
 /**
  * M300 边缘自主巡检 — 3D 仿真主界面（工业风 UI + 写实场景 + 机巢 / 边缘终端）
  */
-import { ref, shallowRef, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, shallowRef, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { ElMessage } from 'element-plus'
 import { createPowerlineScene } from '@/sim/scene'
+import { createSubstationScene } from '@/sim/substationScene'
 import { M300DroneModel } from '@/sim/drone'
 import { MissionRunner } from '@/sim/missionRunner'
 import { StateReportService } from '@/sim/stateReport'
@@ -42,6 +43,24 @@ const edgeMetrics = shallowRef<EdgeTerminalMetrics>({
 const reportOpen = ref(false)
 const lastReport = shallowRef<MissionReport | null>(null)
 
+/** 3D 场景 Tab：输电巡检场地（原场景）与独立变电站程序化场景 */
+const sceneTab = ref<'patrol' | 'substation'>('patrol')
+
+/** 鸟瞰 / 地面观察（约人眼高度，仅巡检场地 Tab 有效） */
+const viewMode = ref<'aerial' | 'ground'>('aerial')
+const savedAerialOrbit = {
+  position: new THREE.Vector3(),
+  target: new THREE.Vector3(),
+  valid: false as boolean
+}
+
+/** 切到变电站 Tab 前记住的巡检场地相机（切回时恢复） */
+const savedPatrolCamera = {
+  position: new THREE.Vector3(),
+  target: new THREE.Vector3(),
+  valid: false as boolean
+}
+
 const reportTableRows = computed(() => {
   const r = lastReport.value
   if (!r) return []
@@ -58,6 +77,7 @@ const reportTableRows = computed(() => {
 
 let renderer: THREE.WebGLRenderer | null = null
 let sceneBundle: ReturnType<typeof createPowerlineScene> | null = null
+let substationBundle: ReturnType<typeof createSubstationScene> | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let controls: OrbitControls | null = null
 let drone: M300DroneModel | null = null
@@ -68,6 +88,114 @@ let missionRunner: MissionRunner | null = null
 let edgeSim = createEdgeMetricsSimulator(() => !simulateDisconnect.value)
 let rafMain = 0
 let disposeResize: (() => void) | null = null
+
+const viewHint = computed(() => {
+  if (sceneTab.value === 'substation') {
+    return '变电站场景 · 地面仰视 · 左键环视 · 滚轮缩放（与输电场地独立）'
+  }
+  return viewMode.value === 'ground'
+    ? '地面视角 · 约 1.7 m 眼高 · 左键环视 · 滚轮前后移动'
+    : '左键旋转 · 滚轮缩放 · 右键平移 · 阻尼已开启'
+})
+
+function applyViewMode(prev?: 'aerial' | 'ground') {
+  if (!camera || !controls || !sceneBundle || sceneTab.value !== 'patrol') return
+  const home = sceneBundle.homePosition
+
+  if (viewMode.value === 'ground') {
+    if (prev === 'aerial') {
+      savedAerialOrbit.position.copy(camera.position)
+      savedAerialOrbit.target.copy(controls.target)
+      savedAerialOrbit.valid = true
+    }
+    camera.fov = 60
+    camera.updateProjectionMatrix()
+    // 站在起降区南侧略偏东，仰望线路走廊与杆塔（塔列 z≈-35）
+    camera.position.set(38, 1.72, 58)
+    controls.target.set(12, 38, -22)
+    controls.minDistance = 0.35
+    controls.maxDistance = 220
+    controls.minPolarAngle = 0.08
+    controls.maxPolarAngle = Math.PI * 0.499
+  } else {
+    camera.fov = 52
+    camera.updateProjectionMatrix()
+    if (savedAerialOrbit.valid) {
+      camera.position.copy(savedAerialOrbit.position)
+      controls.target.copy(savedAerialOrbit.target)
+    } else {
+      camera.position.set(-95, 135, 175)
+      controls.target.copy(home)
+    }
+    controls.minDistance = 35
+    controls.maxDistance = 520
+    controls.minPolarAngle = 0
+    controls.maxPolarAngle = Math.PI * 0.49
+  }
+  controls.update()
+}
+
+watch(viewMode, (mode, prev) => {
+  applyViewMode(prev)
+})
+
+function ensureSubstationBundle() {
+  if (!renderer || substationBundle) return
+  substationBundle = createSubstationScene(renderer)
+}
+
+function applySubstationCamera() {
+  if (!camera || !controls) return
+  camera.fov = 58
+  camera.updateProjectionMatrix()
+  camera.position.set(4.2, 1.68, 30)
+  controls.target.set(-7.5, 18.5, -7)
+  controls.minDistance = 0.55
+  controls.maxDistance = 88
+  controls.minPolarAngle = 0.04
+  controls.maxPolarAngle = Math.PI * 0.498
+  controls.update()
+}
+
+function restorePatrolCameraAfterSubstation() {
+  if (!camera || !controls || !sceneBundle) return
+  if (savedPatrolCamera.valid) {
+    camera.position.copy(savedPatrolCamera.position)
+    controls.target.copy(savedPatrolCamera.target)
+  } else {
+    camera.position.set(-95, 135, 175)
+    controls.target.copy(sceneBundle.homePosition)
+  }
+  camera.fov = viewMode.value === 'ground' ? 60 : 52
+  camera.updateProjectionMatrix()
+  if (viewMode.value === 'ground') {
+    controls.minDistance = 0.35
+    controls.maxDistance = 220
+    controls.minPolarAngle = 0.08
+    controls.maxPolarAngle = Math.PI * 0.499
+  } else {
+    controls.minDistance = 35
+    controls.maxDistance = 520
+    controls.minPolarAngle = 0
+    controls.maxPolarAngle = Math.PI * 0.49
+  }
+  controls.update()
+}
+
+watch(sceneTab, (tab, prev) => {
+  if (!camera || !controls) return
+  if (tab === 'substation') {
+    if (sceneBundle) {
+      savedPatrolCamera.position.copy(camera.position)
+      savedPatrolCamera.target.copy(controls.target)
+      savedPatrolCamera.valid = true
+    }
+    ensureSubstationBundle()
+    applySubstationCamera()
+  } else if (tab === 'patrol' && prev === 'substation') {
+    restorePatrolCameraAfterSubstation()
+  }
+})
 
 function applyNetworkSim() {
   stateReport?.setOnline(!simulateDisconnect.value)
@@ -209,8 +337,11 @@ function initThree(): () => void {
     edgeMetrics.value = edgeSim.tick(dt)
     drone?.tick(dt)
     controls?.update()
-    if (renderer && sceneBundle && camera) {
+    if (!renderer || !camera) return
+    if (sceneTab.value === 'patrol' && sceneBundle) {
       renderer.render(sceneBundle.scene, camera)
+    } else if (sceneTab.value === 'substation' && substationBundle) {
+      renderer.render(substationBundle.scene, camera)
     }
   }
   tick()
@@ -243,6 +374,8 @@ function initThree(): () => void {
     renderer?.dispose()
     renderer = null
     camera = null
+    substationBundle?.dispose()
+    substationBundle = null
     disposeScene()
     sceneBundle = null
     stateReport = null
@@ -304,6 +437,17 @@ function try65535Demo() {
       <header class="border-b border-[var(--ia-border)] pb-2 font-mono text-xs tracking-wide text-[var(--ia-accent)]">
         RACCOON EDGE SIM / 边缘巡检仿真
       </header>
+
+      <section v-if="sceneTab === 'patrol'" class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
+        <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">场景视角</div>
+        <el-radio-group v-model="viewMode" size="small" class="flex flex-col gap-1.5 font-mono">
+          <el-radio label="aerial">鸟瞰（默认轨道）</el-radio>
+          <el-radio label="ground">地面观察（人眼高度）</el-radio>
+        </el-radio-group>
+        <p class="mt-1.5 text-[10px] leading-snug text-[var(--ia-muted)]">
+          切至地面时为固定站位；从鸟瞰进入地面会记住当前机位，切回鸟瞰时恢复。
+        </p>
+      </section>
 
       <section class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
         <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">边缘控制终端</div>
@@ -370,11 +514,19 @@ function try65535Demo() {
     </aside>
 
     <main class="relative order-1 min-h-[44vh] flex-1 border-[var(--ia-border)] bg-black md:order-2 md:min-h-0 md:border-x">
+      <div
+        class="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 rounded border border-[var(--ia-border)] bg-[#0a1018]/95 px-1 py-0.5 shadow-md backdrop-blur-sm"
+      >
+        <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg font-mono">
+          <el-radio-button label="patrol">输电巡检场地</el-radio-button>
+          <el-radio-button label="substation">变电站场景</el-radio-button>
+        </el-radio-group>
+      </div>
       <canvas ref="canvasRef" class="h-full w-full touch-none" />
       <div
         class="pointer-events-none absolute bottom-2 left-2 rounded border border-[var(--ia-border)] bg-black/70 px-2 py-1 font-mono text-[10px] text-[var(--ia-muted)]"
       >
-        左键旋转 · 滚轮缩放 · 右键平移 · 阻尼已开启
+        {{ viewHint }}
       </div>
     </main>
 
@@ -477,9 +629,9 @@ function try65535Demo() {
   --el-dialog-bg-color: #0f1824;
   --el-dialog-border-color: var(--ia-border);
 }
-:deep(.ia-dialog .el-dialog__title) {
+:deep(.scene-tab-rg .el-radio-button__inner) {
   font-family: ui-monospace, monospace;
-  font-size: 14px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  padding: 5px 10px;
 }
 </style>
