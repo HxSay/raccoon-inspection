@@ -62,9 +62,28 @@ export async function fetchCloudPlannedPath(deployMode: DeployMode): Promise<Clo
 }
 
 /**
+ * 火电站室内廊道巡检示例航线（地面高度 ~1.3m，与 thermalPlantScene 坐标一致）。
+ */
+export async function fetchThermalPlantCloudPath(deployMode: DeployMode): Promise<CloudPathPoint[]> {
+  await netDelay(deployMode)
+  return [
+    { id: 'h0', x: -12, y: 1.32, z: -14, isPhoto: false },
+    { id: 'h1', x: -10, y: 1.32, z: 2, isPhoto: true },
+    { id: 'h2', x: -8, y: 1.32, z: 12, isPhoto: false },
+    { id: 'h3', x: -6, y: 1.32, z: 22, isPhoto: true },
+    { id: 'h4', x: 2, y: 1.32, z: 18, isPhoto: false },
+    { id: 'h5', x: 8, y: 1.32, z: 8, isPhoto: true },
+    { id: 'h6', x: 4, y: 1.32, z: -6, isPhoto: false }
+  ]
+}
+
+/**
  * 边缘端：将云端路径点转换为大疆 Waypoint 任务（速度、航向模式、返航、拍照动作）。
  */
-export function convertToDjiWaypointMission(path: CloudPathPoint[]): DjiWaypointMission {
+export function convertToDjiWaypointMission(
+  path: CloudPathPoint[],
+  aircraft: 'M300_RTK' | 'QUADRUPED_INSPECTION' = 'M300_RTK'
+): DjiWaypointMission {
   assertWaypointLimit(path.length)
   const waypoints: DjiWaypoint[] = path.map((p, i) => {
     const next = path[i + 1]
@@ -85,7 +104,7 @@ export function convertToDjiWaypointMission(path: CloudPathPoint[]): DjiWaypoint
     }
   })
   return {
-    aircraft: 'M300_RTK',
+    aircraft,
     maxFlightSpeed: MAX_FLIGHT_SPEED,
     autoFlightSpeed: AUTO_FLIGHT_SPEED,
     headingMode: HEADING_MODE_AUTO,

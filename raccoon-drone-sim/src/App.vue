@@ -8,11 +8,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { ElMessage } from 'element-plus'
 import { createPowerlineScene } from '@/sim/scene'
 import { createSubstationScene } from '@/sim/substationScene'
+import { createThermalPlantScene } from '@/sim/thermalPlantScene'
 import { M300DroneModel } from '@/sim/drone'
+import { RobotDogModel } from '@/sim/robotDog'
 import { MissionRunner } from '@/sim/missionRunner'
 import { StateReportService } from '@/sim/stateReport'
 import type { DeployMode, MissionReport, TelemetryPayload } from '@/sim/types'
-import { assertWaypointLimit } from '@/sim/edgeService'
+import { assertWaypointLimit, fetchThermalPlantCloudPath } from '@/sim/edgeService'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
 import { DroneNest } from '@/sim/droneNest'
 import { EdgeTerminal3D } from '@/sim/edgeTerminal'
@@ -43,8 +45,8 @@ const edgeMetrics = shallowRef<EdgeTerminalMetrics>({
 const reportOpen = ref(false)
 const lastReport = shallowRef<MissionReport | null>(null)
 
-/** 3D 场景 Tab：输电巡检场地（原场景）与独立变电站程序化场景 */
-const sceneTab = ref<'patrol' | 'substation'>('patrol')
+/** 3D 场景 Tab：输电巡检 / 变电站 / 火电站（室内廊道 + 机器狗） */
+const sceneTab = ref<'patrol' | 'substation' | 'thermal'>('patrol')
 
 /** 鸟瞰 / 地面观察（约人眼高度，仅巡检场地 Tab 有效） */
 const viewMode = ref<'aerial' | 'ground'>('aerial')
@@ -76,10 +78,13 @@ const reportTableRows = computed(() => {
 })
 
 let substationLoadFailed = false
+let thermalLoadFailed = false
 
 let renderer: THREE.WebGLRenderer | null = null
 let sceneBundle: ReturnType<typeof createPowerlineScene> | null = null
 let substationBundle: ReturnType<typeof createSubstationScene> | null = null
+let thermalBundle: ReturnType<typeof createThermalPlantScene> | null = null
+let robotDog: RobotDogModel | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let controls: OrbitControls | null = null
 let drone: M300DroneModel | null = null
@@ -94,6 +99,9 @@ let disposeResize: (() => void) | null = null
 const viewHint = computed(() => {
   if (sceneTab.value === 'substation') {
     return '变电站场景 · 地面仰视 · 左键环视 · 滚轮缩放（与输电场地独立）'
+  }
+  if (sceneTab.value === 'thermal') {
+    return '火电站廊道巡检 · 机器狗与无人机共用航线/派发逻辑 · 左键环视'
   }
   return viewMode.value === 'ground'
     ? '地面视角 · 约 1.7 m 眼高 · 左键环视 · 滚轮前后移动'
@@ -190,22 +198,6 @@ function restorePatrolCameraAfterSubstation() {
   controls.update()
 }
 
-watch(sceneTab, (tab, prev) => {
-  if (!camera || !controls) return
-  if (tab === 'substation') {
-    if (sceneBundle) {
-      savedPatrolCamera.position.copy(camera.position)
-      savedPatrolCamera.target.copy(controls.target)
-      savedPatrolCamera.valid = true
-    }
-    ensureSubstationBundle()
-    applySubstationCamera()
-  } else if (tab === 'patrol' && prev === 'substation') {
-    substationLoadFailed = false
-    restorePatrolCameraAfterSubstation()
-  }
-}, { flush: 'sync' })
-
 function applyNetworkSim() {
   stateReport?.setOnline(!simulateDisconnect.value)
 }
@@ -243,13 +235,117 @@ function onError(e: Error) {
   nest?.setDoorTarget(0)
 }
 
+function ensureThermalPlantBundle(): void {
+  if (!renderer || thermalBundle || thermalLoadFailed) return
+  try {
+    thermalBundle = createThermalPlantScene(renderer)
+    robotDog = new RobotDogModel()
+    robotDog.setPose(thermalBundle.homePosition.clone(), 0)
+    thermalBundle.world.add(robotDog.root)
+  } catch (e) {
+    console.error('[thermal]', e)
+    thermalLoadFailed = true
+    ElMessage.error('火电站场景初始化失败，请查看控制台')
+  }
+}
+
+function applyThermalCamera() {
+  if (!camera || !controls) return
+  camera.fov = 56
+  camera.updateProjectionMatrix()
+  camera.position.set(10, 1.55, 10)
+  controls.target.set(-4, 2.2, -8)
+  controls.minDistance = 0.45
+  controls.maxDistance = 62
+  controls.minPolarAngle = 0.06
+  controls.maxPolarAngle = Math.PI * 0.48
+  controls.update()
+}
+
+function rebuildMissionRunner() {
+  missionRunner?.dispose()
+  missionRunner = null
+  if (!stateReport) return
+  if (sceneTab.value === 'patrol' && sceneBundle && drone) {
+    missionRunner = new MissionRunner({
+      agent: drone,
+      pathWorld: sceneBundle.world,
+      stateReport,
+      home: sceneBundle.homePosition.clone(),
+      getDeployMode: () => deployMode.value,
+      getBattery: getBatteryForCheck,
+      setBattery: (v) => {
+        batteryPercent.value = Math.round(v * 10) / 10
+      },
+      getRtkMode: getRtkForCheck,
+      onStatus,
+      onTelemetry,
+      onPhoto: (_p, _ai) => {
+        onPhoto()
+      },
+      onComplete,
+      onError,
+      visualHooks: buildVisualHooks()
+    })
+  } else if (sceneTab.value === 'thermal' && thermalBundle && robotDog) {
+    missionRunner = new MissionRunner({
+      agent: robotDog,
+      pathWorld: thermalBundle.world,
+      stateReport,
+      home: thermalBundle.homePosition.clone(),
+      getDeployMode: () => deployMode.value,
+      getBattery: getBatteryForCheck,
+      setBattery: (v) => {
+        batteryPercent.value = Math.round(v * 10) / 10
+      },
+      getRtkMode: getRtkForCheck,
+      onStatus,
+      onTelemetry,
+      onPhoto: (_p, _ai) => {
+        onPhoto()
+      },
+      onComplete,
+      onError,
+      visualHooks: buildVisualHooks(),
+      fetchPlannedPath: fetchThermalPlantCloudPath,
+      vehicleClass: 'ugv',
+      djiAircraftId: 'QUADRUPED_INSPECTION'
+    })
+  }
+}
+
+watch(
+  sceneTab,
+  (tab, prev) => {
+    if (!camera || !controls) return
+    if (tab === 'patrol' && (prev === 'substation' || prev === 'thermal')) {
+      substationLoadFailed = false
+      thermalLoadFailed = false
+      restorePatrolCameraAfterSubstation()
+    } else if (tab !== 'patrol' && prev === 'patrol' && sceneBundle) {
+      savedPatrolCamera.position.copy(camera.position)
+      savedPatrolCamera.target.copy(controls.target)
+      savedPatrolCamera.valid = true
+    }
+    if (tab === 'substation') {
+      ensureSubstationBundle()
+      applySubstationCamera()
+    } else if (tab === 'thermal') {
+      ensureThermalPlantBundle()
+      applyThermalCamera()
+    }
+    rebuildMissionRunner()
+  },
+  { flush: 'sync' }
+)
+
 function buildVisualHooks() {
   return {
     onPreflightPassed: () => {
-      nest?.setDoorTarget(1)
+      if (sceneTab.value === 'patrol') nest?.setDoorTarget(1)
     },
     onMissionEnded: () => {
-      nest?.setDoorTarget(0)
+      if (sceneTab.value === 'patrol') nest?.setDoorTarget(0)
     }
   }
 }
@@ -315,26 +411,7 @@ function initThree(): () => void {
   })
   applyNetworkSim()
 
-  missionRunner = new MissionRunner({
-    drone,
-    pathWorld: world,
-    stateReport,
-    home: homePosition.clone(),
-    getDeployMode: () => deployMode.value,
-    getBattery: getBatteryForCheck,
-    setBattery: (v) => {
-      batteryPercent.value = Math.round(v * 10) / 10
-    },
-    getRtkMode: getRtkForCheck,
-    onStatus,
-    onTelemetry,
-    onPhoto: (_p, _ai) => {
-      onPhoto()
-    },
-    onComplete,
-    onError,
-    visualHooks: buildVisualHooks()
-  })
+  rebuildMissionRunner()
 
   edgeSim = createEdgeMetricsSimulator(() => !simulateDisconnect.value)
 
@@ -345,6 +422,7 @@ function initThree(): () => void {
     nest?.tick(dt)
     edgeMetrics.value = edgeSim.tick(dt)
     drone?.tick(dt)
+    if (sceneTab.value === 'thermal') robotDog?.tick(dt)
     controls?.update()
     if (!renderer || !camera) return
     const tab = sceneTab.value
@@ -352,6 +430,13 @@ function initThree(): () => void {
       ensureSubstationBundle()
       if (substationBundle) {
         renderer.render(substationBundle.scene, camera)
+      } else if (sceneBundle) {
+        renderer.render(sceneBundle.scene, camera)
+      }
+    } else if (tab === 'thermal') {
+      ensureThermalPlantBundle()
+      if (thermalBundle) {
+        renderer.render(thermalBundle.scene, camera)
       } else if (sceneBundle) {
         renderer.render(sceneBundle.scene, camera)
       }
@@ -392,6 +477,11 @@ function initThree(): () => void {
     substationBundle?.dispose()
     substationBundle = null
     substationLoadFailed = false
+    thermalBundle?.dispose()
+    thermalBundle = null
+    robotDog?.dispose()
+    robotDog = null
+    thermalLoadFailed = false
     disposeScene()
     sceneBundle = null
     stateReport = null
@@ -410,6 +500,10 @@ onBeforeUnmount(() => {
 })
 
 async function startMission() {
+  if (!missionRunner) {
+    ElMessage.warning('当前场景不支持任务仿真（请切换到输电巡检或火电站）')
+    return
+  }
   applyNetworkSim()
   cloudReceiveCount.value = 0
   await missionRunner?.start()
@@ -422,9 +516,13 @@ function resetMission() {
   telemetry.value = null
   cloudReceiveCount.value = 0
   nest?.setDoorTarget(0)
-  if (sceneBundle && drone) {
+  if (sceneTab.value === 'patrol' && sceneBundle && drone) {
     drone.setPose(sceneBundle.homePosition.clone(), 0)
     drone.setGimbal(0, 0)
+  }
+  if (sceneTab.value === 'thermal' && thermalBundle && robotDog) {
+    robotDog.setPose(thermalBundle.homePosition.clone(), 0)
+    robotDog.setGimbal(0, 0)
   }
 }
 
@@ -484,7 +582,7 @@ function try65535Demo() {
         </div>
       </section>
 
-      <el-card shadow="never" class="ia-card">
+      <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
         <template #header>任务状态</template>
         <p class="mb-2 font-mono text-[11px] leading-relaxed text-[var(--ia-muted)]">{{ taskStatus }}</p>
         <div class="flex flex-wrap gap-2">
@@ -533,9 +631,10 @@ function try65535Demo() {
       <div
         class="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 rounded border border-[var(--ia-border)] bg-[#0a1018]/95 px-1 py-0.5 shadow-md backdrop-blur-sm"
       >
-        <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg font-mono">
+        <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg flex flex-wrap justify-center font-mono">
           <el-radio-button value="patrol">输电巡检场地</el-radio-button>
           <el-radio-button value="substation">变电站场景</el-radio-button>
+          <el-radio-button value="thermal">火电站巡检</el-radio-button>
         </el-radio-group>
       </div>
       <canvas ref="canvasRef" class="h-full w-full touch-none" />

@@ -1,3 +1,5 @@
+import type { Vector3 } from 'three'
+
 /** 云端下发的路径点（地理/场景统一用米制局部坐标） */
 export interface CloudPathPoint {
   id: string
@@ -9,6 +11,14 @@ export interface CloudPathPoint {
   z: number
   /** 是否为拍照点 */
   isPhoto: boolean
+}
+
+/** 可被 MissionRunner 驱动的巡检载具（无人机 / 机器狗等） */
+export interface MissionInspectable {
+  setPose(position: Vector3, yawRad: number, pitchRad?: number, rollRad?: number): void
+  setGimbal(pitchDeg: number, yawDeg: number): void
+  setRotorRunning(on: boolean): void
+  tick(dt: number): void
 }
 
 /** 大疆 Waypoint 任务中单点动作（仿真结构，可与真机 JSON 对齐扩展） */
@@ -31,7 +41,7 @@ export interface DjiWaypoint {
 
 /** 大疆 Waypoint 任务整体配置（与边缘端转换结果对齐的字段子集） */
 export interface DjiWaypointMission {
-  aircraft: 'M300_RTK'
+  aircraft: 'M300_RTK' | 'QUADRUPED_INSPECTION'
   maxFlightSpeed: number
   autoFlightSpeed: number
   headingMode: 'AUTO'

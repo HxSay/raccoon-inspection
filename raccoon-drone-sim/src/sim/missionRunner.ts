@@ -8,9 +8,15 @@ import {
   uploadMissionToAircraft
 } from './edgeService'
 import { FlightPathVisualization } from './flightPath'
-import type { M300DroneModel } from './drone'
 import type { StateReportService } from './stateReport'
-import type { AiDefectResult, CloudPathPoint, MissionReport, PhotoCaptureMeta, TelemetryPayload } from './types'
+import type {
+  AiDefectResult,
+  CloudPathPoint,
+  MissionInspectable,
+  MissionReport,
+  PhotoCaptureMeta,
+  TelemetryPayload
+} from './types'
 import type { DeployMode } from './types'
 
 /**
@@ -57,7 +63,7 @@ export interface MissionVisualHooks {
 }
 
 export interface MissionRunnerOptions {
-  drone: M300DroneModel
+  agent: MissionInspectable
   /** 航迹标记挂接到场景该组下（与地形同级） */
   pathWorld: THREE.Group
   stateReport: StateReportService
@@ -73,6 +79,11 @@ export interface MissionRunnerOptions {
   onError: (e: Error) => void
   /** 纯可视化钩子：不改变航点、转换、遥测等业务逻辑 */
   visualHooks?: MissionVisualHooks
+  /** 未指定时与输电场景一致，走 fetchCloudPlannedPath */
+  fetchPlannedPath?: (deploy: DeployMode) => Promise<CloudPathPoint[]>
+  /** 地面载具返航段不大幅爬高 */
+  vehicleClass?: 'uav' | 'ugv'
+  djiAircraftId?: 'M300_RTK' | 'QUADRUPED_INSPECTION'
 }
 
 export class MissionRunner {
@@ -116,7 +127,7 @@ export class MissionRunner {
 
   setPaused(v: boolean): void {
     this.paused = v
-    this.opts.drone.setRotorRunning(!v && (this.phase === 'mission' || this.phase === 'rth'))
+    this.opts.agent.setRotorRunning(!v && (this.phase === 'mission' || this.phase === 'rth'))
   }
 
   reset(): void {
@@ -135,7 +146,7 @@ export class MissionRunner {
     this.capturing = false
     this.takeoffBlend = 0
     this.firstFlightFrame = true
-    this.opts.drone.setRotorRunning(false)
+    this.opts.agent.setRotorRunning(false)
     this.opts.onStatus('已重置')
   }
 
@@ -158,14 +169,15 @@ export class MissionRunner {
 
       const deploy = this.opts.getDeployMode()
       this.opts.onStatus('正在从云端获取规划路径…')
-      this.missionPath = await fetchCloudPlannedPath(deploy)
+      const pathFetcher = this.opts.fetchPlannedPath ?? fetchCloudPlannedPath
+      this.missionPath = await pathFetcher(deploy)
 
       this.clearPathViz()
       this.pathViz = new FlightPathVisualization(this.missionPath)
       this.opts.pathWorld.add(this.pathViz.group)
 
       this.opts.onStatus('正在转换为大疆 Waypoint 任务…')
-      const dji = convertToDjiWaypointMission(this.missionPath)
+      const dji = convertToDjiWaypointMission(this.missionPath, this.opts.djiAircraftId ?? 'M300_RTK')
       this.djiMissionJson = JSON.stringify(dji, null, 2)
 
       this.opts.onStatus('正在上传任务至飞控…')
@@ -199,7 +211,7 @@ export class MissionRunner {
       this.phase = 'mission'
       this.takeoffBlend = 0
       this.firstFlightFrame = true
-      this.opts.drone.setRotorRunning(true)
+      this.opts.agent.setRotorRunning(true)
       this.opts.onStatus('自主巡检中（CatmullRom 平滑航线）')
       this.lastPos.copy(this.opts.home)
       this.lastTs = performance.now()
@@ -209,7 +221,7 @@ export class MissionRunner {
       this.clearPathViz()
       this.opts.onError(e instanceof Error ? e : new Error(String(e)))
       this.phase = 'idle'
-      this.opts.drone.setRotorRunning(false)
+      this.opts.agent.setRotorRunning(false)
     }
   }
 
@@ -230,7 +242,7 @@ export class MissionRunner {
     const dt = Math.min(0.05, (now - this.lastTs) / 1000) || 0.016
     this.lastTs = now
 
-    this.opts.drone.tick(dt)
+    this.opts.agent.tick(dt)
 
     if (this.phase === 'idle' || this.phase === 'done') {
       return
@@ -279,9 +291,9 @@ export class MissionRunner {
       this.opts.visualHooks?.onMissionFlightBegin?.()
     }
 
-    this.opts.drone.setPose(pos, yaw)
+    this.opts.agent.setPose(pos, yaw)
     if (!this.capturing) {
-      this.opts.drone.setGimbal(-12, 0)
+      this.opts.agent.setGimbal(-12, 0)
     }
 
     if (this.flown.length === 0 || this.flown[this.flown.length - 1].distanceToSquared(pos) > 4) {
@@ -329,13 +341,13 @@ export class MissionRunner {
       if (this.u + 0.0005 >= ph.u) {
         this.triggered.add(ph.wpIndex)
         this.capturing = true
-        this.opts.drone.setRotorRunning(true)
+        this.opts.agent.setRotorRunning(true)
         this.opts.onStatus(`拍照航点 #${ph.wpIndex}：调整云台并触发快门…`)
         const steps = 12
         for (let s = 0; s <= steps; s++) {
           const t = s / steps
           const pitch = -12 + (PHOTO_GIMBAL_PITCH_DEG + 12) * t
-          this.opts.drone.setGimbal(pitch, ph.yawDeg * t)
+          this.opts.agent.setGimbal(pitch, ph.yawDeg * t)
           await new Promise((r) => setTimeout(r, 40))
         }
         const meta = buildPhotoMeta({
@@ -362,7 +374,8 @@ export class MissionRunner {
     this.phase = 'rth'
     this.u = 0
     const mid = new THREE.Vector3().lerpVectors(from, this.opts.home, 0.5)
-    mid.y += 25
+    const yLift = this.opts.vehicleClass === 'ugv' ? 0.55 : 25
+    mid.y += yLift
     this.curveRth = new THREE.CatmullRomCurve3([from.clone(), mid, this.opts.home.clone()], false, 'catmullrom', 0.25)
     this.lenRth = Math.max(1, estimateCurveLength(this.curveRth, 256))
     this.lastPos.copy(from)
@@ -372,9 +385,9 @@ export class MissionRunner {
     this.phase = 'done'
     this.opts.visualHooks?.onMissionEnded?.()
     this.stopLoop()
-    this.opts.drone.setRotorRunning(false)
-    this.opts.drone.setPose(this.opts.home.clone(), 0)
-    this.opts.drone.setGimbal(0, 0)
+    this.opts.agent.setRotorRunning(false)
+    this.opts.agent.setPose(this.opts.home.clone(), 0)
+    this.opts.agent.setGimbal(0, 0)
     this.finishedAt = Date.now()
     this.opts.onStatus('任务完成，已降落至起飞点')
     const report: MissionReport = {
