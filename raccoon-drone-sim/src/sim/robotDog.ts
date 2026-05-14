@@ -9,6 +9,8 @@ export class RobotDogModel {
   private readonly legs: { upper: THREE.Mesh; lower: THREE.Mesh; side: number; phase: number }[] = []
   private walkActive = false
   private walkPhase = 0
+  /** 模型包围盒最低点相对 root 的 Y（用于贴地：世界地面 y 时 root.y = y - soleMinY） */
+  private soleMinY = 0.01
 
   constructor() {
     this.root = new THREE.Group()
@@ -72,10 +74,14 @@ export class RobotDogModel {
       this.legs.push({ upper, lower, side: hx > 0 ? 1 : -1, phase: idx * 0.5 * Math.PI })
       idx++
     }
+
+    this.root.updateMatrixWorld(true)
+    const box = new THREE.Box3().setFromObject(this.root)
+    this.soleMinY = box.min.y
   }
 
   setPose(position: THREE.Vector3, yawRad: number, pitchRad = 0, rollRad = 0): void {
-    this.root.position.copy(position)
+    this.root.position.set(position.x, position.y - this.soleMinY, position.z)
     this.root.rotation.set(pitchRad, yawRad, rollRad, 'YXZ')
   }
 

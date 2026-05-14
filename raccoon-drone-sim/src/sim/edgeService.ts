@@ -10,6 +10,7 @@ import {
   HEADING_MODE_AUTO,
   INSPECTION_POINT_SPEED,
   MAX_FLIGHT_SPEED,
+  PATROL_LANE_Z_SPACING_M,
   PHOTO_GIMBAL_PITCH_DEG,
   RTK_MODE_FIXED
 } from './constants'
@@ -44,36 +45,45 @@ async function netDelay(deployMode: DeployMode): Promise<void> {
   await new Promise((r) => setTimeout(r, ms))
 }
 
+/** 基准走廊（lane 0）航点；多机时整条沿 Z 平移 `laneIndex * PATROL_LANE_Z_SPACING_M` */
+const PATROL_BASE_CLOUD_PATH: CloudPathPoint[] = [
+  { id: 'wp0', x: 0, y: 35, z: 40, isPhoto: false },
+  { id: 'wp1', x: 40, y: 38, z: 10, isPhoto: true },
+  { id: 'wp2', x: 100, y: 42, z: -15, isPhoto: false },
+  { id: 'wp3', x: 160, y: 45, z: -30, isPhoto: true },
+  { id: 'wp4', x: 220, y: 40, z: -25, isPhoto: false },
+  { id: 'wp5', x: 260, y: 36, z: 5, isPhoto: true },
+  { id: 'wp6', x: 200, y: 34, z: 35, isPhoto: false }
+]
+
 /**
  * 模拟云端下发规划路径（JSON）。生产环境此处对接真实云端接口。
+ * @param laneIndex 并排走廊索引，与 `scene.corridorHomes` 及杆塔列 Z 偏移一致。
  */
-export async function fetchCloudPlannedPath(deployMode: DeployMode): Promise<CloudPathPoint[]> {
+export async function fetchCloudPlannedPath(deployMode: DeployMode, laneIndex = 0): Promise<CloudPathPoint[]> {
   await netDelay(deployMode)
-  // 一条沿输电走廊的示例航线，含若干拍照点
-  return [
-    { id: 'wp0', x: 0, y: 35, z: 40, isPhoto: false },
-    { id: 'wp1', x: 40, y: 38, z: 10, isPhoto: true },
-    { id: 'wp2', x: 100, y: 42, z: -15, isPhoto: false },
-    { id: 'wp3', x: 160, y: 45, z: -30, isPhoto: true },
-    { id: 'wp4', x: 220, y: 40, z: -25, isPhoto: false },
-    { id: 'wp5', x: 260, y: 36, z: 5, isPhoto: true },
-    { id: 'wp6', x: 200, y: 34, z: 35, isPhoto: false }
-  ]
+  const dz = laneIndex * PATROL_LANE_Z_SPACING_M
+  return PATROL_BASE_CLOUD_PATH.map((p) => ({
+    ...p,
+    z: p.z + dz,
+    id: `${p.id}-L${laneIndex}`
+  }))
 }
 
 /**
- * 火电站室内廊道巡检示例航线（地面高度 ~1.3m，与 thermalPlantScene 坐标一致）。
+ * 火电站厂区地面巡检示例航线（y 为地坪 THERMAL_PLANT_GROUND_Y，与 thermalPlantScene 一致）。
  */
 export async function fetchThermalPlantCloudPath(deployMode: DeployMode): Promise<CloudPathPoint[]> {
   await netDelay(deployMode)
+  const y = 0
   return [
-    { id: 'h0', x: -12, y: 1.32, z: -14, isPhoto: false },
-    { id: 'h1', x: -10, y: 1.32, z: 2, isPhoto: true },
-    { id: 'h2', x: -8, y: 1.32, z: 12, isPhoto: false },
-    { id: 'h3', x: -6, y: 1.32, z: 22, isPhoto: true },
-    { id: 'h4', x: 2, y: 1.32, z: 18, isPhoto: false },
-    { id: 'h5', x: 8, y: 1.32, z: 8, isPhoto: true },
-    { id: 'h6', x: 4, y: 1.32, z: -6, isPhoto: false }
+    { id: 'h0', x: -12, y, z: -14, isPhoto: false },
+    { id: 'h1', x: -8, y, z: 2, isPhoto: true },
+    { id: 'h2', x: -4, y, z: 14, isPhoto: false },
+    { id: 'h3', x: 2, y, z: 22, isPhoto: true },
+    { id: 'h4', x: 10, y, z: 16, isPhoto: false },
+    { id: 'h5', x: 14, y, z: 4, isPhoto: true },
+    { id: 'h6', x: 6, y, z: -8, isPhoto: false }
   ]
 }
 

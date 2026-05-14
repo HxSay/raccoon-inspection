@@ -2,7 +2,7 @@
 /**
  * M300 边缘自主巡检 — 3D 仿真主界面（工业风 UI + 写实场景 + 机巢 / 边缘终端）
  */
-import { ref, shallowRef, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, shallowRef, onMounted, onBeforeUnmount, computed, watch, reactive } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { ElMessage } from 'element-plus'
@@ -14,11 +14,12 @@ import { RobotDogModel } from '@/sim/robotDog'
 import { MissionRunner } from '@/sim/missionRunner'
 import { StateReportService } from '@/sim/stateReport'
 import type { DeployMode, MissionReport, TelemetryPayload } from '@/sim/types'
-import { assertWaypointLimit, fetchThermalPlantCloudPath } from '@/sim/edgeService'
+import { assertWaypointLimit, fetchCloudPlannedPath, fetchThermalPlantCloudPath } from '@/sim/edgeService'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
 import { DroneNest } from '@/sim/droneNest'
 import { EdgeTerminal3D } from '@/sim/edgeTerminal'
 import { createEdgeMetricsSimulator, type EdgeTerminalMetrics } from '@/sim/edgeMetrics'
+import { SceneObjectEditor, type SceneObjectEditorSnapshot } from '@/sim/sceneEditor'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -44,9 +45,39 @@ const edgeMetrics = shallowRef<EdgeTerminalMetrics>({
 
 const reportOpen = ref(false)
 const lastReport = shallowRef<MissionReport | null>(null)
+/** 多机输电巡检：各机任务报告缓存，凑齐后合并弹窗 */
+const patrolFleetBuffer = ref<MissionReport[]>([])
+
+function mergePatrolReports(reports: MissionReport[]): MissionReport {
+  const startedAt = Math.min(...reports.map((r) => r.startedAt))
+  const finishedAt = Math.max(...reports.map((r) => r.finishedAt))
+  return {
+    startedAt,
+    finishedAt,
+    durationSec: (finishedAt - startedAt) / 1000,
+    distanceM: reports.reduce((s, r) => s + r.distanceM, 0),
+    photos: reports.flatMap((r) => r.photos),
+    aiResults: reports.flatMap((r) => r.aiResults),
+    telemetrySent: reports.reduce((s, r) => s + r.telemetrySent, 0),
+    bufferedWhileOffline: Math.max(...reports.map((r) => r.bufferedWhileOffline))
+  }
+}
 
 /** 3D 场景 Tab：输电巡检 / 变电站 / 火电站（室内廊道 + 机器狗） */
 const sceneTab = ref<'patrol' | 'substation' | 'thermal'>('patrol')
+
+/** Shift+点选 + 变换手柄：编辑当前 Tab 场景内物体（不持久化） */
+const sceneEditEnabled = ref(false)
+const sceneEditorSnap = shallowRef<SceneObjectEditorSnapshot | null>(null)
+const editForm = reactive({
+  x: 0,
+  y: 0,
+  z: 0,
+  rotYdeg: 0,
+  sx: 1,
+  sy: 1,
+  sz: 1
+})
 
 /** 鸟瞰 / 地面观察（约人眼高度，仅巡检场地 Tab 有效） */
 const viewMode = ref<'aerial' | 'ground'>('aerial')
@@ -87,25 +118,34 @@ let thermalBundle: ReturnType<typeof createThermalPlantScene> | null = null
 let robotDog: RobotDogModel | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let controls: OrbitControls | null = null
-let drone: M300DroneModel | null = null
+/** 输电场地多机（与 corridorHomes 一一对应） */
+let patrolDrones: M300DroneModel[] = []
 let nest: DroneNest | null = null
 let terminal: EdgeTerminal3D | null = null
-let stateReport: StateReportService | null = null
-let missionRunner: MissionRunner | null = null
+/** 每架巡逻机独立遥测通道（避免一机结束 stop 掉共享 10Hz 定时器） */
+let stateReports: StateReportService[] = []
+let missionRunners: MissionRunner[] = []
+/** 最后一架完成输电任务后关舱门 */
+let patrolNestLanded = 0
 let edgeSim = createEdgeMetricsSimulator(() => !simulateDisconnect.value)
 let rafMain = 0
 let disposeResize: (() => void) | null = null
+let sceneObjectEditor: SceneObjectEditor | null = null
 
 const viewHint = computed(() => {
+  const edit =
+    sceneEditEnabled.value && (sceneTab.value === 'patrol' || sceneTab.value === 'substation' || sceneTab.value === 'thermal')
+      ? ' 编辑：Shift+左键点选物体，拖轴平移；左侧可改数值或删除（不持久化）。'
+      : ''
   if (sceneTab.value === 'substation') {
-    return '变电站场景 · 地面仰视 · 左键环视 · 滚轮缩放（与输电场地独立）'
+    return '变电站场景 · 地面仰视 · 左键环视 · 滚轮缩放（与输电场地独立）' + edit
   }
   if (sceneTab.value === 'thermal') {
-    return '火电站廊道巡检 · 机器狗与无人机共用航线/派发逻辑 · 左键环视'
+    return '火电站厂区 · 机器狗贴地沿道路巡检 · 左键环视 · 滚轮缩放' + edit
   }
   return viewMode.value === 'ground'
-    ? '地面视角 · 约 1.7 m 眼高 · 左键环视 · 滚轮前后移动'
-    : '左键旋转 · 滚轮缩放 · 右键平移 · 阻尼已开启'
+    ? '地面视角 · 约 1.7 m 眼高 · 左键环视 · 滚轮前后移动' + edit
+    : '左键旋转 · 滚轮缩放 · 右键平移 · 阻尼已开启' + edit
 })
 
 function applyViewMode(prev?: 'aerial' | 'ground') {
@@ -120,7 +160,7 @@ function applyViewMode(prev?: 'aerial' | 'ground') {
     }
     camera.fov = 60
     camera.updateProjectionMatrix()
-    // 站在起降区南侧略偏东，仰望线路走廊与杆塔（塔列 z≈-35）
+    // 站在起降区南侧略偏东，仰望线路走廊与杆塔（多排走廊 Z 约 -35～45）
     camera.position.set(38, 1.72, 58)
     controls.target.set(12, 38, -22)
     controls.minDistance = 0.35
@@ -199,7 +239,7 @@ function restorePatrolCameraAfterSubstation() {
 }
 
 function applyNetworkSim() {
-  stateReport?.setOnline(!simulateDisconnect.value)
+  stateReports.forEach((s) => s.setOnline(!simulateDisconnect.value))
 }
 
 function getBatteryForCheck() {
@@ -212,7 +252,7 @@ function getRtkForCheck() {
 
 function onTelemetry(t: TelemetryPayload) {
   telemetry.value = t
-  offlineBufferHint.value = stateReport?.getBufferedCount() ?? 0
+  offlineBufferHint.value = stateReports.reduce((a, s) => a + s.getBufferedCount(), 0)
 }
 
 function onStatus(s: string) {
@@ -220,13 +260,13 @@ function onStatus(s: string) {
 }
 
 function onPhoto() {
-  offlineBufferHint.value = stateReport?.getBufferedCount() ?? 0
+  offlineBufferHint.value = stateReports.reduce((a, s) => a + s.getBufferedCount(), 0)
 }
 
 function onComplete(r: MissionReport) {
   lastReport.value = r
   reportOpen.value = true
-  missionJson.value = missionRunner?.getDjiMissionPreview() ?? missionJson.value
+  missionJson.value = missionRunners[0]?.getDjiMissionPreview() ?? missionJson.value
 }
 
 function onError(e: Error) {
@@ -240,6 +280,7 @@ function ensureThermalPlantBundle(): void {
   try {
     thermalBundle = createThermalPlantScene(renderer)
     robotDog = new RobotDogModel()
+    robotDog.root.userData.noScenePick = true
     robotDog.setPose(thermalBundle.homePosition.clone(), 0)
     thermalBundle.world.add(robotDog.root)
   } catch (e) {
@@ -251,66 +292,94 @@ function ensureThermalPlantBundle(): void {
 
 function applyThermalCamera() {
   if (!camera || !controls) return
-  camera.fov = 56
+  camera.fov = 52
   camera.updateProjectionMatrix()
-  camera.position.set(10, 1.55, 10)
-  controls.target.set(-4, 2.2, -8)
-  controls.minDistance = 0.45
-  controls.maxDistance = 62
-  controls.minPolarAngle = 0.06
+  camera.position.set(46, 34, 36)
+  controls.target.set(5, 3, 0)
+  controls.minDistance = 8
+  controls.maxDistance = 120
+  controls.minPolarAngle = 0.12
   controls.maxPolarAngle = Math.PI * 0.48
   controls.update()
 }
 
 function rebuildMissionRunner() {
-  missionRunner?.dispose()
-  missionRunner = null
-  if (!stateReport) return
-  if (sceneTab.value === 'patrol' && sceneBundle && drone) {
-    missionRunner = new MissionRunner({
-      agent: drone,
-      pathWorld: sceneBundle.world,
-      stateReport,
-      home: sceneBundle.homePosition.clone(),
-      getDeployMode: () => deployMode.value,
-      getBattery: getBatteryForCheck,
-      setBattery: (v) => {
-        batteryPercent.value = Math.round(v * 10) / 10
-      },
-      getRtkMode: getRtkForCheck,
-      onStatus,
-      onTelemetry,
-      onPhoto: (_p, _ai) => {
-        onPhoto()
-      },
-      onComplete,
-      onError,
-      visualHooks: buildVisualHooks()
-    })
+  missionRunners.forEach((m) => m.dispose())
+  missionRunners = []
+  patrolFleetBuffer.value = []
+  patrolNestLanded = 0
+  if (!stateReports.length) return
+  if (sceneTab.value === 'patrol' && sceneBundle && patrolDrones.length) {
+    const n = Math.min(patrolDrones.length, sceneBundle.corridorHomes.length)
+    const onPatrolFleetComplete = (r: MissionReport) => {
+      patrolFleetBuffer.value.push(r)
+      if (patrolFleetBuffer.value.length >= n) {
+        lastReport.value = mergePatrolReports(patrolFleetBuffer.value)
+        patrolFleetBuffer.value = []
+        reportOpen.value = true
+        missionJson.value = missionRunners.map((mr) => mr.getDjiMissionPreview()).join('\n---\n')
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      missionRunners.push(
+        new MissionRunner({
+          agent: patrolDrones[i]!,
+          pathWorld: sceneBundle.world,
+          stateReport: stateReports[i]!,
+          home: sceneBundle.corridorHomes[i]!.clone(),
+          getDeployMode: () => deployMode.value,
+          getBattery: getBatteryForCheck,
+          setBattery: i === 0 ? (v) => { batteryPercent.value = Math.round(v * 10) / 10 } : () => {},
+          getRtkMode: getRtkForCheck,
+          onStatus: i === 0 ? onStatus : () => {},
+          onTelemetry: i === 0 ? onTelemetry : () => {},
+          onPhoto: (_p, _ai) => {
+            onPhoto()
+          },
+          onComplete: onPatrolFleetComplete,
+          onError,
+          fetchPlannedPath: (dep) => fetchCloudPlannedPath(dep, i),
+          visualHooks: {
+            onPreflightPassed: () => {
+              if (i === 0) nest?.setDoorTarget(1)
+            },
+            onMissionEnded: () => {
+              patrolNestLanded++
+              if (patrolNestLanded >= n) {
+                nest?.setDoorTarget(0)
+                patrolNestLanded = 0
+              }
+            }
+          }
+        })
+      )
+    }
   } else if (sceneTab.value === 'thermal' && thermalBundle && robotDog) {
-    missionRunner = new MissionRunner({
-      agent: robotDog,
-      pathWorld: thermalBundle.world,
-      stateReport,
-      home: thermalBundle.homePosition.clone(),
-      getDeployMode: () => deployMode.value,
-      getBattery: getBatteryForCheck,
-      setBattery: (v) => {
-        batteryPercent.value = Math.round(v * 10) / 10
-      },
-      getRtkMode: getRtkForCheck,
-      onStatus,
-      onTelemetry,
-      onPhoto: (_p, _ai) => {
-        onPhoto()
-      },
-      onComplete,
-      onError,
-      visualHooks: buildVisualHooks(),
-      fetchPlannedPath: fetchThermalPlantCloudPath,
-      vehicleClass: 'ugv',
-      djiAircraftId: 'QUADRUPED_INSPECTION'
-    })
+    missionRunners.push(
+      new MissionRunner({
+        agent: robotDog,
+        pathWorld: thermalBundle.world,
+        stateReport: stateReports[0]!,
+        home: thermalBundle.homePosition.clone(),
+        getDeployMode: () => deployMode.value,
+        getBattery: getBatteryForCheck,
+        setBattery: (v) => {
+          batteryPercent.value = Math.round(v * 10) / 10
+        },
+        getRtkMode: getRtkForCheck,
+        onStatus,
+        onTelemetry,
+        onPhoto: (_p, _ai) => {
+          onPhoto()
+        },
+        onComplete,
+        onError,
+        visualHooks: buildVisualHooks(),
+        fetchPlannedPath: fetchThermalPlantCloudPath,
+        vehicleClass: 'ugv',
+        djiAircraftId: 'QUADRUPED_INSPECTION'
+      })
+    )
   }
 }
 
@@ -335,6 +404,7 @@ watch(
       applyThermalCamera()
     }
     rebuildMissionRunner()
+    sceneObjectEditor?.rebindToActiveScene()
   },
   { flush: 'sync' }
 )
@@ -367,7 +437,25 @@ function initThree(): () => void {
   renderer.outputColorSpace = THREE.SRGBColorSpace
 
   sceneBundle = createPowerlineScene(renderer)
-  const { scene, world, homePosition, terminalPosition, dispose: disposeScene } = sceneBundle
+  const { scene, world, homePosition, terminalPosition, corridorHomes, dispose: disposeScene } = sceneBundle
+
+  const laneN = corridorHomes.length
+  stateReports = Array.from({ length: laneN }, (_, i) => {
+    const s = new StateReportService()
+    s.setCloudSink(() => {
+      if (i === 0) cloudReceiveCount.value++
+    })
+    return s
+  })
+
+  patrolDrones = []
+  for (let i = 0; i < laneN; i++) {
+    const d = new M300DroneModel()
+    void d.tryLoadExternalModel('/models/m300.glb')
+    d.setPose(corridorHomes[i]!.clone(), 0)
+    scene.add(d.root)
+    patrolDrones.push(d)
+  }
 
   camera = new THREE.PerspectiveCamera(52, w / h, 0.4, 1200)
   camera.position.set(-95, 135, 175)
@@ -400,15 +488,30 @@ function initThree(): () => void {
   terminal.root.position.copy(terminalPosition)
   world.add(terminal.root)
 
-  drone = new M300DroneModel()
-  void drone.tryLoadExternalModel('/models/m300.glb')
-  drone.setPose(homePosition.clone(), 0)
-  scene.add(drone.root)
-
-  stateReport = new StateReportService()
-  stateReport.setCloudSink(() => {
-    cloudReceiveCount.value++
+  nest.root.userData.noScenePick = true
+  terminal.root.userData.noScenePick = true
+  patrolDrones.forEach((d) => {
+    d.root.userData.noScenePick = true
   })
+
+  sceneObjectEditor = new SceneObjectEditor(
+    canvas,
+    camera,
+    controls,
+    () => {
+      const tab = sceneTab.value
+      if (tab === 'patrol' && sceneBundle) return { scene: sceneBundle.scene, world: sceneBundle.world }
+      if (tab === 'substation' && substationBundle) return { scene: substationBundle.scene, world: substationBundle.world }
+      if (tab === 'thermal' && thermalBundle) return { scene: thermalBundle.scene, world: thermalBundle.world }
+      return null
+    },
+    (snap) => {
+      sceneEditorSnap.value = snap
+    }
+  )
+  sceneObjectEditor.setEnabled(sceneEditEnabled.value)
+  sceneObjectEditor.rebindToActiveScene()
+
   applyNetworkSim()
 
   rebuildMissionRunner()
@@ -421,7 +524,7 @@ function initThree(): () => void {
     const dt = clock.getDelta()
     nest?.tick(dt)
     edgeMetrics.value = edgeSim.tick(dt)
-    drone?.tick(dt)
+    patrolDrones.forEach((d) => d.tick(dt))
     if (sceneTab.value === 'thermal') robotDog?.tick(dt)
     controls?.update()
     if (!renderer || !camera) return
@@ -461,12 +564,16 @@ function initThree(): () => void {
     disposeResize?.()
     disposeResize = null
     cancelAnimationFrame(rafMain)
-    missionRunner?.dispose()
-    missionRunner = null
+    sceneObjectEditor?.dispose()
+    sceneObjectEditor = null
+    missionRunners.forEach((m) => m.dispose())
+    missionRunners = []
     controls?.dispose()
     controls = null
-    drone?.dispose()
-    drone = null
+    patrolDrones.forEach((d) => d.dispose())
+    patrolDrones = []
+    stateReports.forEach((s) => s.stop())
+    stateReports = []
     nest?.dispose()
     nest = null
     terminal?.dispose()
@@ -484,7 +591,6 @@ function initThree(): () => void {
     thermalLoadFailed = false
     disposeScene()
     sceneBundle = null
-    stateReport = null
   }
 }
 
@@ -500,25 +606,33 @@ onBeforeUnmount(() => {
 })
 
 async function startMission() {
-  if (!missionRunner) {
+  if (!missionRunners.length) {
     ElMessage.warning('当前场景不支持任务仿真（请切换到输电巡检或火电站）')
     return
   }
   applyNetworkSim()
   cloudReceiveCount.value = 0
-  await missionRunner?.start()
-  missionJson.value = missionRunner?.getDjiMissionPreview() ?? ''
+  await Promise.all(missionRunners.map((m) => m.start()))
+  missionJson.value = missionRunners.map((m) => m.getDjiMissionPreview()).join('\n---\n')
 }
 
 function resetMission() {
-  missionRunner?.reset()
+  missionRunners.forEach((m) => m.reset())
   batteryPercent.value = 96
   telemetry.value = null
   cloudReceiveCount.value = 0
+  patrolFleetBuffer.value = []
+  patrolNestLanded = 0
   nest?.setDoorTarget(0)
-  if (sceneTab.value === 'patrol' && sceneBundle && drone) {
-    drone.setPose(sceneBundle.homePosition.clone(), 0)
-    drone.setGimbal(0, 0)
+  if (sceneTab.value === 'patrol' && sceneBundle && patrolDrones.length) {
+    const homes = sceneBundle.corridorHomes
+    patrolDrones.forEach((d, i) => {
+      const h = homes[i]
+      if (h) {
+        d.setPose(h.clone(), 0)
+        d.setGimbal(0, 0)
+      }
+    })
   }
   if (sceneTab.value === 'thermal' && thermalBundle && robotDog) {
     robotDog.setPose(thermalBundle.homePosition.clone(), 0)
@@ -527,9 +641,47 @@ function resetMission() {
 }
 
 function togglePause() {
-  if (!missionRunner) return
-  missionRunner.setPaused(!missionRunner.isPaused())
-  taskStatus.value = missionRunner.isPaused() ? '已暂停' : '自主巡检中（CatmullRom 平滑航线）'
+  if (!missionRunners.length) return
+  const nextPaused = !missionRunners[0]!.isPaused()
+  missionRunners.forEach((m) => m.setPaused(nextPaused))
+  taskStatus.value = nextPaused ? '已暂停' : '自主巡检中（CatmullRom 平滑航线）'
+}
+
+watch(sceneEditorSnap, (s) => {
+  if (!s) return
+  editForm.x = s.x
+  editForm.y = s.y
+  editForm.z = s.z
+  editForm.rotYdeg = s.rotYdeg
+  editForm.sx = s.sx
+  editForm.sy = s.sy
+  editForm.sz = s.sz
+})
+
+watch(sceneEditEnabled, (on) => {
+  sceneObjectEditor?.setEnabled(on)
+})
+
+function applySceneEditForm() {
+  sceneObjectEditor?.applyFromForm({
+    x: editForm.x,
+    y: editForm.y,
+    z: editForm.z,
+    rotYdeg: editForm.rotYdeg,
+    sx: editForm.sx,
+    sy: editForm.sy,
+    sz: editForm.sz
+  })
+}
+
+function deleteSceneSelection() {
+  if (!sceneEditorSnap.value) return
+  sceneObjectEditor?.deleteSelected()
+  ElMessage.info('已从当前内存场景移除；刷新页面会恢复默认模型。')
+}
+
+function clearSceneSelection() {
+  sceneObjectEditor?.clearSelection()
 }
 
 function try65535Demo() {
@@ -546,19 +698,19 @@ function try65535Demo() {
     class="industrial-app flex h-full w-full min-h-0 flex-col border-t border-[var(--ia-border)] text-[#c8d4e0] md:flex-row"
   >
     <aside
-      class="order-2 flex w-full shrink-0 flex-col gap-2.5 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-3 md:order-1 md:w-80 md:border-r lg:w-[22rem]"
+      class="order-2 flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-2.5 md:order-1 md:w-80 md:border-r lg:w-[22rem]"
     >
-      <header class="border-b border-[var(--ia-border)] pb-2 font-mono text-xs tracking-wide text-[var(--ia-accent)]">
+      <header class="border-b border-[var(--ia-border)] pb-1.5 font-mono text-xs tracking-wide text-[var(--ia-accent)]">
         RACCOON EDGE SIM / 边缘巡检仿真
       </header>
 
-      <section v-if="sceneTab === 'patrol'" class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
-        <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">场景视角</div>
-        <el-radio-group v-model="viewMode" size="small" class="flex flex-col gap-1.5 font-mono">
+      <section v-if="sceneTab === 'patrol'" class="rounded border border-[var(--ia-border)] bg-[#0c141c] px-2 py-1.5">
+        <div class="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">场景视角</div>
+        <el-radio-group v-model="viewMode" size="small" class="ia-radio-tight flex flex-col gap-0.5 font-mono">
           <el-radio value="aerial">鸟瞰（默认轨道）</el-radio>
           <el-radio value="ground">地面观察（人眼高度）</el-radio>
         </el-radio-group>
-        <p class="mt-1.5 text-[10px] leading-snug text-[var(--ia-muted)]">
+        <p class="mt-1 text-[9px] leading-tight text-[var(--ia-muted)]">
           切至地面时为固定站位；从鸟瞰进入地面会记住当前机位，切回鸟瞰时恢复。
         </p>
       </section>
@@ -582,6 +734,56 @@ function try65535Demo() {
         </div>
       </section>
 
+      <el-card shadow="never" class="ia-card">
+        <template #header>场景物体编辑</template>
+        <el-switch v-model="sceneEditEnabled" size="small" active-text="启用" inactive-text="关闭" />
+        <p class="mt-1 text-[9px] leading-tight text-[var(--ia-muted)]">
+          <b>Shift+左键</b>点选当前 Tab 的 <code class="text-[var(--ia-accent)]">world</code> 下网格；拖红绿蓝轴平移。删除会释放几何体（共享材质且带 skipDispose 的物体请谨慎删）。
+        </p>
+        <template v-if="sceneEditorSnap">
+          <div class="mt-1.5 truncate font-mono text-[10px] text-[var(--ia-accent)]" :title="sceneEditorSnap.label">
+            {{ sceneEditorSnap.label }}
+          </div>
+          <div class="mt-2 grid grid-cols-3 gap-1 font-mono">
+            <div>
+              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">X</div>
+              <el-input-number v-model="editForm.x" :step="0.5" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div>
+              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Y</div>
+              <el-input-number v-model="editForm.y" :step="0.5" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div>
+              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Z</div>
+              <el-input-number v-model="editForm.z" :step="0.5" size="small" controls-position="right" class="!w-full" />
+            </div>
+          </div>
+          <div class="mt-1.5">
+            <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">绕 Y 旋转（°）</div>
+            <el-input-number v-model="editForm.rotYdeg" :step="5" size="small" controls-position="right" class="!w-full" />
+          </div>
+          <div class="mt-1.5 grid grid-cols-3 gap-1">
+            <div>
+              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Sx</div>
+              <el-input-number v-model="editForm.sx" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div>
+              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Sy</div>
+              <el-input-number v-model="editForm.sy" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div>
+              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Sz</div>
+              <el-input-number v-model="editForm.sz" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
+            </div>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            <el-button type="primary" size="small" class="!font-mono" @click="applySceneEditForm">应用数值</el-button>
+            <el-button size="small" class="!font-mono" @click="clearSceneSelection">取消选中</el-button>
+            <el-button type="danger" size="small" plain class="!font-mono" @click="deleteSceneSelection">删除物体</el-button>
+          </div>
+        </template>
+      </el-card>
+
       <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
         <template #header>任务状态</template>
         <p class="mb-2 font-mono text-[11px] leading-relaxed text-[var(--ia-muted)]">{{ taskStatus }}</p>
@@ -592,13 +794,19 @@ function try65535Demo() {
         </div>
       </el-card>
 
-      <el-card shadow="never" class="ia-card">
+      <el-collapse v-if="missionJson" class="ia-collapse ia-collapse-json">
+        <el-collapse-item title="Waypoint 任务 JSON" name="1">
+          <pre class="max-h-40 overflow-auto p-1 font-mono text-[10px] leading-snug text-[#6ecf9b]">{{ missionJson }}</pre>
+        </el-collapse-item>
+      </el-collapse>
+
+      <el-card shadow="never" class="ia-card ia-card-deploy-tight">
         <template #header>部署模式</template>
-        <el-radio-group v-model="deployMode" size="small" class="flex flex-col gap-2 font-mono">
+        <el-radio-group v-model="deployMode" size="small" class="ia-radio-tight flex flex-col gap-1 font-mono">
           <el-radio value="groundStation">地面站（+100ms RTT）</el-radio>
           <el-radio value="onboard">机载（+20ms RTT）</el-radio>
         </el-radio-group>
-        <p class="mt-2 text-[10px] leading-snug text-[var(--ia-muted)]">
+        <p class="mt-1 text-[9px] leading-tight text-[var(--ia-muted)]">
           云端固定 200ms + 模式附加延迟（<code class="text-[var(--ia-accent)]">constants.ts</code>）
         </p>
       </el-card>
@@ -619,12 +827,6 @@ function try65535Demo() {
         <template #header>航点上限（65535）</template>
         <el-button size="small" class="!font-mono" @click="try65535Demo">触发校验</el-button>
       </el-card>
-
-      <el-collapse v-if="missionJson" class="ia-collapse">
-        <el-collapse-item title="Waypoint 任务 JSON" name="1">
-          <pre class="max-h-44 overflow-auto p-1 font-mono text-[10px] leading-snug text-[#6ecf9b]">{{ missionJson }}</pre>
-        </el-collapse-item>
-      </el-collapse>
     </aside>
 
     <main class="relative order-1 min-h-[44vh] flex-1 border-[var(--ia-border)] bg-black md:order-2 md:min-h-0 md:border-x">
@@ -713,6 +915,19 @@ function try65535Demo() {
   padding: 10px;
 }
 
+:deep(.ia-card.ia-card-deploy-tight .el-card__header) {
+  padding: 4px 8px;
+}
+:deep(.ia-card.ia-card-deploy-tight .el-card__body) {
+  padding: 6px 8px 7px;
+}
+
+.ia-radio-tight :deep(.el-radio) {
+  margin-right: 0;
+  height: auto;
+  line-height: 1.25;
+}
+
 .ia-collapse {
   border: 1px solid var(--ia-border);
   border-radius: 2px;
@@ -724,6 +939,20 @@ function try65535Demo() {
   font-family: ui-monospace, monospace;
   font-size: 11px;
   color: var(--ia-muted);
+}
+
+:deep(.ia-collapse-json .el-collapse-item__header) {
+  min-height: 28px;
+  height: 28px;
+  line-height: 28px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+:deep(.ia-collapse-json .el-collapse-item__wrap) {
+  border-top: 1px solid var(--ia-border);
+}
+:deep(.ia-collapse-json .el-collapse-item__content) {
+  padding: 6px 8px;
 }
 
 .ia-desc {

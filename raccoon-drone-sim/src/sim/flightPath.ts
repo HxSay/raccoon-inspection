@@ -21,6 +21,7 @@ export class FlightPathVisualization {
 
   constructor(points: CloudPathPoint[], maxSegments = 4096) {
     this.group = new THREE.Group()
+    this.group.userData.noScenePick = true
     this.maxPoints = maxSegments
 
     for (const p of points) {
