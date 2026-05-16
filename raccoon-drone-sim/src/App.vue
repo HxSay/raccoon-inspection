@@ -31,8 +31,15 @@ import {
   type ScenePersistTab
 } from '@/sim/scenePersistence'
 import { captureSceneFromInspectionRig, disposeInspectionCaptureRenderer } from '@/sim/droneCameraCapture'
+import { SceneEditor3D } from '@/editor/SceneEditor3D'
+import type { EditorUiState } from '@/editor/types'
+import EditorOutliner from '@/components/EditorOutliner.vue'
+import EditorToolbar from '@/components/EditorToolbar.vue'
+import EditorProperties from '@/components/EditorProperties.vue'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+/** 包裹 canvas：flex 子项里用绝对定位填满，避免 clientWidth 与缓冲区不一致导致半屏黑 */
+const canvasWrapperRef = ref<HTMLElement | null>(null)
 
 const deployMode = ref<DeployMode>('groundStation')
 const simulateDisconnect = ref(false)
@@ -77,8 +84,8 @@ function mergePatrolReports(reports: MissionReport[]): MissionReport {
 /** 3D 场景 Tab：输电巡检 / 变电站 / 火电站（室内廊道 + 机器狗） */
 const sceneTab = ref<'patrol' | 'substation' | 'thermal'>('patrol')
 
-/** Shift+点选 + 变换手柄：编辑当前 Tab 场景内物体（删除 / 应用数值 /「保存场景」写入本机） */
-const sceneEditEnabled = ref(false)
+/** 3D 场景编辑器：默认开启；关闭后恢复旧 Shift 点选与无人机侧栏 */
+const sceneEditEnabled = ref(true)
 const simDrawerOpen = ref(false)
 const sceneEditorSnap = shallowRef<SceneObjectEditorSnapshot | null>(null)
 const editForm = reactive({
@@ -143,7 +150,10 @@ let patrolNestLanded = 0
 let edgeSim = createEdgeMetricsSimulator(() => !simulateDisconnect.value)
 let rafMain = 0
 let disposeResize: (() => void) | null = null
+let canvasResizeObserver: ResizeObserver | null = null
 let sceneObjectEditor: SceneObjectEditor | null = null
+const sceneEditor3dRef = shallowRef<SceneEditor3D | null>(null)
+const editorUiState = shallowRef<EditorUiState | null>(null)
 
 const viewHint = computed(() => {
   const edit =
@@ -197,6 +207,42 @@ function applyViewMode(prev?: 'aerial' | 'ground') {
   }
   controls.update()
 }
+
+function getActiveWorldScene(): { scene: THREE.Scene; world: THREE.Group } | null {
+  const tab = sceneTab.value
+  if (tab === 'patrol' && sceneBundle) return { scene: sceneBundle.scene, world: sceneBundle.world }
+  if (tab === 'substation' && substationBundle) return { scene: substationBundle.scene, world: substationBundle.world }
+  if (tab === 'thermal' && thermalBundle) return { scene: thermalBundle.scene, world: thermalBundle.world }
+  return null
+}
+
+function rebindEditor3dWorld(): void {
+  const ed = sceneEditor3dRef.value
+  if (!ed) return
+  ed.unbindWorld()
+  const ctx = getActiveWorldScene()
+  if (ctx) ed.bindWorld(ctx.world, ctx.scene)
+}
+
+function applyEditorOrbitStyle(on: boolean): void {
+  if (!controls) return
+  if (on) {
+    controls.mouseButtons.LEFT = THREE.MOUSE.PAN
+    controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE
+    controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY
+  } else {
+    controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE
+    controls.mouseButtons.RIGHT = THREE.MOUSE.PAN
+    controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY
+  }
+}
+
+watch(sceneEditEnabled, (on) => {
+  sceneObjectEditor?.setEnabled(!on)
+  sceneEditor3dRef.value?.setActive(on)
+  missionRunners.forEach((m) => m.setPaused(on))
+  applyEditorOrbitStyle(on)
+}, { immediate: true })
 
 watch(viewMode, (mode, prev) => {
   applyViewMode(prev)
@@ -410,6 +456,7 @@ function rebuildMissionRunner() {
       })
     )
   }
+  missionRunners.forEach((m) => m.setPaused(sceneEditEnabled.value))
 }
 
 watch(
@@ -434,6 +481,7 @@ watch(
     }
     rebuildMissionRunner()
     sceneObjectEditor?.rebindToActiveScene()
+    rebindEditor3dWorld()
   },
   { flush: 'sync' }
 )
@@ -453,8 +501,8 @@ function initThree(): () => void {
   const canvas = canvasRef.value
   if (!canvas) return () => {}
 
-  const w = canvas.clientWidth
-  const h = canvas.clientHeight
+  const w = Math.max(1, canvas.clientWidth)
+  const h = Math.max(1, canvas.clientHeight)
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
   renderer.setSize(w, h)
@@ -486,7 +534,7 @@ function initThree(): () => void {
     patrolDrones.push(d)
   }
 
-  camera = new THREE.PerspectiveCamera(52, w / h, 0.4, 1200)
+  camera = new THREE.PerspectiveCamera(52, Math.max(0.01, w / h), 0.4, 1200)
   camera.position.set(-95, 135, 175)
   camera.lookAt(homePosition)
 
@@ -525,6 +573,19 @@ function initThree(): () => void {
 
   applySceneState(world, 'patrol')
 
+  sceneEditor3dRef.value = new SceneEditor3D({
+    canvas,
+    camera,
+    orbit: controls,
+    getWorld: () => getActiveWorldScene()?.world ?? null,
+    getScene: () => getActiveWorldScene()?.scene ?? null,
+    getActiveTab: () => sceneTab.value,
+    onUiChange: (s) => {
+      editorUiState.value = s
+    }
+  })
+  sceneEditor3dRef.value.mountInputHandlers()
+
   sceneObjectEditor = new SceneObjectEditor(
     canvas,
     camera,
@@ -553,8 +614,12 @@ function initThree(): () => void {
       appendRemovalAndPersist(tab as ScenePersistTab, w, getStablePathToWorld(obj, w))
     }
   )
-  sceneObjectEditor.setEnabled(sceneEditEnabled.value)
+  sceneObjectEditor.setEnabled(!sceneEditEnabled.value)
   sceneObjectEditor.rebindToActiveScene()
+
+  rebindEditor3dWorld()
+  sceneEditor3dRef.value.setActive(sceneEditEnabled.value)
+  applyEditorOrbitStyle(sceneEditEnabled.value)
 
   applyNetworkSim()
 
@@ -589,25 +654,44 @@ function initThree(): () => void {
       }
     } else if (tab === 'patrol' && sceneBundle) {
       renderer.render(sceneBundle.scene, camera)
+    } else if (sceneBundle) {
+      // 防止未知 tab / 竞态导致整帧不 render（全黑）
+      renderer.render(sceneBundle.scene, camera)
     }
   }
   tick()
 
   const onResize = () => {
-    if (!canvasRef.value || !renderer || !camera) return
-    const rw = canvasRef.value.clientWidth
-    const rh = canvasRef.value.clientHeight
-    renderer.setSize(rw, rh)
+    const box = canvasWrapperRef.value ?? canvasRef.value?.parentElement
+    if (!box || !renderer || !camera) return
+    const rw = Math.max(1, Math.floor(box.clientWidth))
+    const rh = Math.max(1, Math.floor(box.clientHeight))
+    renderer.setSize(rw, rh, false)
     camera.aspect = rw / rh
     camera.updateProjectionMatrix()
   }
   window.addEventListener('resize', onResize)
-  disposeResize = () => window.removeEventListener('resize', onResize)
+  disposeResize = () => {
+    window.removeEventListener('resize', onResize)
+    canvasResizeObserver?.disconnect()
+    canvasResizeObserver = null
+  }
+
+  canvasResizeObserver = new ResizeObserver(() => {
+    onResize()
+  })
+  requestAnimationFrame(() => {
+    const t = canvasWrapperRef.value ?? canvasRef.value?.parentElement
+    if (t && canvasResizeObserver) canvasResizeObserver.observe(t)
+    onResize()
+  })
 
   return () => {
     disposeResize?.()
     disposeResize = null
     cancelAnimationFrame(rafMain)
+    sceneEditor3dRef.value?.dispose()
+    sceneEditor3dRef.value = null
     sceneObjectEditor?.dispose()
     sceneObjectEditor = null
     missionRunners.forEach((m) => m.dispose())
@@ -651,6 +735,10 @@ onBeforeUnmount(() => {
 })
 
 async function startMission() {
+  if (sceneEditEnabled.value) {
+    ElMessage.warning('请先关闭「模型编辑」再运行任务仿真')
+    return
+  }
   if (!missionRunners.length) {
     ElMessage.warning('当前场景不支持任务仿真（请切换到输电巡检或火电站）')
     return
@@ -703,10 +791,6 @@ watch(sceneEditorSnap, (s) => {
   editForm.sz = s.sz
 })
 
-watch(sceneEditEnabled, (on) => {
-  sceneObjectEditor?.setEnabled(on)
-})
-
 function getPersistWorld(): THREE.Group | null {
   const t = sceneTab.value
   if (t === 'patrol' && sceneBundle) return sceneBundle.world
@@ -754,8 +838,14 @@ async function onPersistCommand(cmd: 'current' | 'all') {
   }
 }
 
-function handlePersistDropdown(cmd: string) {
-  if (cmd === 'current' || cmd === 'all') void onPersistCommand(cmd)
+function onSceneMenuCommand(cmd: string) {
+  if (cmd === 'save') saveSceneLayout()
+  else if (cmd === 'reset-current' || cmd === 'reset-all') void onPersistCommand(cmd === 'reset-current' ? 'current' : 'all')
+  else if (cmd === 'sim') simDrawerOpen.value = true
+}
+
+function onViewModeCommand(cmd: string) {
+  if (cmd === 'aerial' || cmd === 'ground') viewMode.value = cmd
 }
 
 function applySceneEditForm() {
@@ -792,102 +882,77 @@ function try65535Demo() {
 
 <template>
   <div class="industrial-app flex h-full w-full min-h-0 flex-col border-t border-[var(--ia-border)] text-[#c8d4e0]">
-    <header class="shrink-0 border-b border-[var(--ia-border)] bg-[var(--ia-panel)] px-2 py-2">
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <div class="hidden font-mono text-[10px] tracking-wide text-[var(--ia-accent)] sm:block">RACCOON EDGE SIM</div>
+    <header class="shrink-0 border-b border-[var(--ia-border)] bg-[var(--ia-panel)] px-2 py-1.5">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div class="hidden shrink-0 font-mono text-[10px] tracking-wide text-[var(--ia-accent)] sm:block">RACCOON EDGE SIM</div>
         <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg flex flex-wrap font-mono">
           <el-radio-button value="patrol">输电巡检场地</el-radio-button>
           <el-radio-button value="substation">变电站场景</el-radio-button>
           <el-radio-button value="thermal">火电站巡检</el-radio-button>
         </el-radio-group>
 
-        <template v-if="sceneTab === 'patrol'">
-          <el-radio-group v-model="viewMode" size="small" class="ia-radio-tight flex flex-wrap gap-0.5 font-mono">
-            <el-radio-button value="aerial">鸟瞰</el-radio-button>
-            <el-radio-button value="ground">地面</el-radio-button>
-          </el-radio-group>
-        </template>
+        <el-dropdown v-if="sceneTab === 'patrol'" trigger="click" class="font-mono" @command="onViewModeCommand">
+          <el-button size="small" type="default" class="!font-mono">
+            视角 · {{ viewMode === 'aerial' ? '鸟瞰' : '地面' }} <span class="ml-0.5 opacity-60">▾</span>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="aerial">鸟瞰</el-dropdown-item>
+              <el-dropdown-item command="ground">地面</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
         <el-divider direction="vertical" class="ia-toolbar-divider" />
-
-        <span class="hidden font-mono text-[9px] uppercase tracking-wider text-[var(--ia-muted)] md:inline">场景 / 地图</span>
 
         <div class="flex flex-wrap items-center gap-1.5">
           <span class="font-mono text-[10px] text-[var(--ia-muted)]">模型编辑</span>
           <el-switch v-model="sceneEditEnabled" size="small" />
-          <el-button size="small" class="!font-mono" @click="saveSceneLayout">保存场景</el-button>
-          <el-dropdown trigger="click" @command="handlePersistDropdown">
-            <el-button size="small" class="!font-mono"> 恢复默认 <span class="opacity-70">▾</span> </el-button>
+          <el-dropdown trigger="click" class="font-mono" @command="onSceneMenuCommand">
+            <el-button size="small" type="default" class="!font-mono">
+              场景菜单 <span class="ml-0.5 opacity-60">▾</span>
+            </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="current">仅当前场景…</el-dropdown-item>
-                <el-dropdown-item command="all" divided>全部场景…</el-dropdown-item>
+                <el-dropdown-item command="save">保存场景</el-dropdown-item>
+                <el-dropdown-item command="reset-current" divided>恢复默认（仅当前场景）…</el-dropdown-item>
+                <el-dropdown-item command="reset-all">恢复默认（全部场景）…</el-dropdown-item>
+                <el-dropdown-item command="sim" divided>仿真控制台</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button size="small" class="!font-mono" @click="simDrawerOpen = true">仿真控制台</el-button>
         </div>
       </div>
 
-      <div
-        v-if="sceneEditEnabled && sceneEditorSnap"
-        class="mt-2 flex flex-col gap-2 border-t border-[var(--ia-border)] pt-2 lg:flex-row lg:items-end lg:gap-3"
-      >
-        <div class="truncate font-mono text-[10px] text-[var(--ia-accent)]" :title="sceneEditorSnap.label">{{ sceneEditorSnap.label }}</div>
-        <div class="flex flex-1 flex-wrap items-end gap-2">
-          <div class="grid w-full min-w-0 grid-cols-3 gap-2 sm:flex sm:flex-1 sm:flex-wrap">
-            <div class="min-w-0 sm:w-[5.5rem]">
-              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">X</div>
-              <el-input-number v-model="editForm.x" :step="0.5" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div class="min-w-0 sm:w-[5.5rem]">
-              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Y</div>
-              <el-input-number v-model="editForm.y" :step="0.5" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div class="min-w-0 sm:w-[5.5rem]">
-              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Z</div>
-              <el-input-number v-model="editForm.z" :step="0.5" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div class="col-span-3 min-w-0 sm:col-span-1 sm:w-[7.5rem]">
-              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">绕 Y（°）</div>
-              <el-input-number v-model="editForm.rotYdeg" :step="5" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div class="min-w-0 sm:w-[4.5rem]">
-              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Sx</div>
-              <el-input-number v-model="editForm.sx" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div class="min-w-0 sm:w-[4.5rem]">
-              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Sy</div>
-              <el-input-number v-model="editForm.sy" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div class="min-w-0 sm:w-[4.5rem]">
-              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Sz</div>
-              <el-input-number v-model="editForm.sz" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
-            </div>
-          </div>
-          <div class="flex shrink-0 flex-wrap gap-1.5">
-            <el-button type="primary" size="small" class="!font-mono" @click="applySceneEditForm">应用并保存位姿</el-button>
-            <el-button size="small" class="!font-mono" @click="clearSceneSelection">取消选中</el-button>
-            <el-button type="danger" size="small" plain class="!font-mono" @click="deleteSceneSelection">删除物体</el-button>
-          </div>
-        </div>
-        <p class="font-mono text-[9px] leading-tight text-[var(--ia-muted)] lg:max-w-xs">
-          Shift+左键点选 <code class="text-[var(--ia-accent)]">world</code> 下可编辑网格；拖轴平移后请点「保存场景」。删除会立刻写入本机并释放几何体。
-        </p>
-      </div>
+      <EditorToolbar v-if="sceneEditEnabled" :editor="sceneEditor3dRef" :ui="editorUiState" />
     </header>
 
-    <div class="flex min-h-[44vh] flex-1 flex-col md:min-h-0 md:flex-row">
-      <main class="relative min-h-[44vh] flex-1 border-[var(--ia-border)] bg-black md:min-h-0 md:border-x">
-        <canvas ref="canvasRef" class="h-full w-full touch-none" />
-        <div
-          class="pointer-events-none absolute bottom-2 left-2 max-w-[min(96%,28rem)] rounded border border-[var(--ia-border)] bg-black/70 px-2 py-1 font-mono text-[10px] text-[var(--ia-muted)]"
-        >
-          {{ viewHint }}
+    <!-- 勿使用 md:min-h-0：会把本行 min-height 压成 0，在 flex 下易导致 canvas 高度为 0、画面全黑 -->
+    <div class="flex min-h-[44vh] flex-1 flex-col md:flex-row md:min-h-[min(100%,36rem)]">
+      <EditorOutliner v-if="sceneEditEnabled" :editor="sceneEditor3dRef" :ui="editorUiState" />
+
+      <main
+        class="relative flex min-h-[44vh] min-w-0 flex-1 flex-col overflow-hidden border-[var(--ia-border)] bg-black md:border-x"
+      >
+        <div ref="canvasWrapperRef" class="relative min-h-0 min-w-0 flex-1 self-stretch">
+          <canvas ref="canvasRef" class="absolute inset-0 block h-full w-full touch-none" />
+          <div
+            class="pointer-events-none absolute bottom-2 left-2 z-10 max-w-[min(96%,28rem)] rounded border border-[var(--ia-border)] bg-black/70 px-2 py-1 font-mono text-[10px] text-[var(--ia-muted)]"
+          >
+            {{ viewHint }}
+          </div>
         </div>
       </main>
 
+      <EditorProperties
+        v-if="sceneEditEnabled"
+        :editor="sceneEditor3dRef"
+        :ui="editorUiState"
+        class="max-h-[50vh] min-h-0 shrink-0 overflow-y-auto max-md:w-full md:max-h-none"
+      />
+
       <aside
+        v-else
         class="flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-3 md:w-72 md:border-l"
       >
         <div class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">无人机控制</div>
