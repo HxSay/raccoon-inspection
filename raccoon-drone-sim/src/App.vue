@@ -240,6 +240,7 @@ function applyEditorOrbitStyle(on: boolean): void {
 watch(sceneEditEnabled, (on) => {
   sceneObjectEditor?.setEnabled(!on)
   sceneEditor3dRef.value?.setActive(on)
+  if (on) rebindEditor3dWorld()
   missionRunners.forEach((m) => m.setPaused(on))
   applyEditorOrbitStyle(on)
 }, { immediate: true })
@@ -501,12 +502,17 @@ function initThree(): () => void {
   const canvas = canvasRef.value
   if (!canvas) return () => {}
 
-  const w = Math.max(1, canvas.clientWidth)
-  const h = Math.max(1, canvas.clientHeight)
+  const box0 = canvasWrapperRef.value ?? canvas.parentElement
+  const w = Math.max(1, Math.floor(box0?.clientWidth ?? canvas.clientWidth))
+  const h = Math.max(1, Math.floor(box0?.clientHeight ?? canvas.clientHeight))
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
-  renderer.setSize(w, h)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  /** 勿用 setSize 默认 updateStyle：会把 canvas 锁死在首帧的 px 上，侧栏出现后易出现「半屏黑」 */
+  renderer.setSize(w, h, false)
+  canvas.style.width = '100%'
+  canvas.style.height = '100%'
+  canvas.style.display = 'block'
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -663,10 +669,14 @@ function initThree(): () => void {
 
   const onResize = () => {
     const box = canvasWrapperRef.value ?? canvasRef.value?.parentElement
-    if (!box || !renderer || !camera) return
+    const cv = canvasRef.value
+    if (!box || !cv || !renderer || !camera) return
     const rw = Math.max(1, Math.floor(box.clientWidth))
     const rh = Math.max(1, Math.floor(box.clientHeight))
     renderer.setSize(rw, rh, false)
+    cv.style.width = '100%'
+    cv.style.height = '100%'
+    cv.style.display = 'block'
     camera.aspect = rw / rh
     camera.updateProjectionMatrix()
   }

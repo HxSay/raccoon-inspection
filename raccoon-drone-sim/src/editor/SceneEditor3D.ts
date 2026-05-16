@@ -464,10 +464,13 @@ export class SceneEditor3D {
       mesh.position.set(0, 80, 0)
       snapObjectBottomToTerrain(mesh, world, this.raycaster, ignore)
     }
+    mesh.updateMatrixWorld(true)
     const snap = this.serializeObject(mesh)
     this.history.push({ type: 'add', id: snap.id, json: snap })
-    this.select(snap.id, false)
     this.emitUi()
+    queueMicrotask(() => {
+      this.select(snap.id, false)
+    })
   }
 
   private collectIgnoreSet(): Set<THREE.Object3D> {
@@ -595,10 +598,14 @@ export class SceneEditor3D {
       this.raycaster.setFromCamera(this._ndc.set(mx, my), this.opts.camera)
       this.raycaster.layers.mask = this.opts.camera.layers.mask
       placeOnTerrainAt(mesh, world, this.raycaster, this._pickXZ, ignore)
+      mesh.updateMatrixWorld(true)
       const snap = this.serializeObject(mesh)
       this.history.push({ type: 'add', id: snap.id, json: snap })
       this.cancelPlacement()
-      this.select(snap.id, false)
+      this.emitUi()
+      queueMicrotask(() => {
+        this.select(snap.id, false)
+      })
       return
     }
 

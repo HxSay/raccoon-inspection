@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick } from 'vue'
 import type { ShallowRef } from 'vue'
 import type { SceneEditor3D } from '@/editor/SceneEditor3D'
 import type { EditorUiState, EditorPrimitiveKind, TransformToolMode } from '@/editor/types'
@@ -9,9 +9,9 @@ const props = defineProps<{
   ui: ShallowRef<EditorUiState | null>
 }>()
 
-const uiState = computed(() => props.ui.value)
+const uiState = computed(() => props.ui?.value ?? null)
 
-const ed = () => props.editor.value
+const ed = () => props.editor?.value ?? null
 
 const dims = {
   wx: 4,
@@ -44,18 +44,24 @@ function grid() {
   ed()?.toggleGrid()
 }
 
+function quickAdd(kind: EditorPrimitiveKind) {
+  if (kind === 'imported') return
+  void nextTick(() => {
+    props.editor?.value?.createPrimitiveAtViewCenter(kind, { ...dims })
+  })
+}
+
 function place(kind: EditorPrimitiveKind) {
   if (kind === 'imported') return
-  ed()?.beginPlacement(kind)
+  void nextTick(() => {
+    props.editor?.value?.beginPlacement(kind)
+  })
 }
 
 function cancelPlace() {
-  ed()?.cancelPlacement()
-}
-
-function quickAdd(kind: EditorPrimitiveKind) {
-  if (kind === 'imported') return
-  ed()?.createPrimitiveAtViewCenter(kind, { ...dims })
+  void nextTick(() => {
+    props.editor?.value?.cancelPlacement()
+  })
 }
 
 function undo() {
@@ -70,7 +76,8 @@ function onTransformCmd(cmd: string) {
   if (cmd === 'translate' || cmd === 'rotate' || cmd === 'scale') tool(cmd)
 }
 
-function onGeometryCmd(cmd: string) {
+function onGeometryCmd(cmd: string | number) {
+  const c = String(cmd)
   const map: Record<string, EditorPrimitiveKind> = {
     box: 'box',
     sphere: 'sphere',
@@ -79,14 +86,15 @@ function onGeometryCmd(cmd: string) {
     plane: 'plane',
     pipe: 'pipe'
   }
-  const k = map[cmd]
+  const k = map[c]
   if (k) quickAdd(k)
 }
 
-function onPlaceCmd(cmd: string) {
-  if (cmd === 'box') place('box')
-  else if (cmd === 'sphere') place('sphere')
-  else if (cmd === 'cancel') cancelPlace()
+function onPlaceCmd(cmd: string | number) {
+  const c = String(cmd)
+  if (c === 'box') place('box')
+  else if (c === 'sphere') place('sphere')
+  else if (c === 'cancel') cancelPlace()
 }
 
 function onMoreCmd(cmd: string) {

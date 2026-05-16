@@ -9,7 +9,7 @@ const props = defineProps<{
   ui: ShallowRef<EditorUiState | null>
 }>()
 
-const uiState = computed(() => props.ui.value)
+const uiState = computed(() => props.ui?.value ?? null)
 
 const form = reactive<Partial<SelectionProps>>({})
 
@@ -22,11 +22,11 @@ watch(
 )
 
 function apply() {
-  props.editor.value?.applyProps(form)
+  props.editor?.value?.applyProps(form)
 }
 
 function del() {
-  props.editor.value?.deleteSelected()
+  props.editor?.value?.deleteSelected()
 }
 </script>
 

@@ -13,8 +13,8 @@ const props = defineProps<{
 const renameId = ref<string | null>(null)
 const renameText = ref('')
 
-const ed = () => props.editor.value
-const st = computed(() => props.ui.value)
+const ed = () => props.editor?.value ?? null
+const st = computed(() => props.ui?.value ?? null)
 
 function selectNode(id: string, ev: MouseEvent) {
   ed()?.selectById(id, ev.ctrlKey || ev.metaKey)
