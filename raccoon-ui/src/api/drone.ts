@@ -6,8 +6,10 @@ export interface GeoPoint {
   height: number
 }
 
-/** 拍照航点：坐标 + 绑定的巡检设备（可多选） */
+/** 拍照航点：绑定途经航点 + 巡检设备；坐标由服务端解析 */
 export interface PhotoWaypoint extends GeoPoint {
+  /** 途经航点下标（从 0 起） */
+  waypointIndex?: number
   deviceIds?: number[]
 }
 

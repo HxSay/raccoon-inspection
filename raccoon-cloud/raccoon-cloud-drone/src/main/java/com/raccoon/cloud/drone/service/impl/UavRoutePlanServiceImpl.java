@@ -65,8 +65,9 @@ public class UavRoutePlanServiceImpl extends ServiceImpl<UavRoutePlanMapper, Uav
         row.setEstimatedTime(estSeconds);
         row.setEstimatedBattery(estBattery);
         row.setAlgorithm(algorithm);
-        List<PhotoWaypoint> photos =
-                request.getPhotoPoints() == null ? Collections.emptyList() : request.getPhotoPoints();
+        List<PhotoWaypoint> photos = PhotoWaypointUtils.resolveCoordinates(
+                request.getPhotoPoints() == null ? Collections.emptyList() : request.getPhotoPoints(),
+                path);
         List<Long> visitOrder = PhotoWaypointUtils.hasBoundDevices(photos)
                 ? PhotoWaypointUtils.flattenDeviceVisitOrder(photos)
                 : (request.getVisitOrder() == null ? Collections.emptyList() : request.getVisitOrder());

@@ -26,7 +26,8 @@ const algorithmOptions = [
   { label: 'RRT*', value: 'RRT*' }
 ]
 
-interface PhotoPointRow extends PointTriple {
+interface PhotoPointRow {
+  waypointIndex?: number
   deviceIds: number[]
 }
 
@@ -37,7 +38,7 @@ const emptyPoint = (): PointTriple => ({
 })
 
 const emptyPhotoPoint = (): PhotoPointRow => ({
-  ...emptyPoint(),
+  waypointIndex: undefined,
   deviceIds: []
 })
 
@@ -151,34 +152,91 @@ function isPointComplete(p: PointTriple) {
   return p.longitude != null && p.latitude != null && p.height != null
 }
 
+function buildFullPathPoints(): GeoPoint[] {
+  const mids = waypoints.value.filter(isPointComplete).map(toGeoPoint)
+  return [toGeoPoint(start.value), ...mids, toGeoPoint(end.value)]
+}
+
 function buildPathPoints(): GeoPoint[] | undefined {
   const mids = waypoints.value.filter(isPointComplete).map(toGeoPoint)
   if (mids.length === 0) {
     return undefined
   }
-  return [toGeoPoint(start.value), ...mids, toGeoPoint(end.value)]
+  return buildFullPathPoints()
+}
+
+const viaWaypointOptions = computed(() =>
+  waypoints.value
+    .map((wp, index) => ({ index, wp }))
+    .filter(({ wp }) => isPointComplete(wp))
+    .map(({ index, wp }) => ({
+      value: index,
+      label: `途经点 ${index + 1}（${Number(wp.longitude).toFixed(4)}, ${Number(wp.latitude).toFixed(4)}, ${wp.height}m）`
+    }))
+)
+
+const waypointLabel = (index?: number) => {
+  if (index == null) return '—'
+  const opt = viaWaypointOptions.value.find((o) => o.value === index)
+  return opt?.label ?? `途经点 ${index + 1}`
+}
+
+const detailWaypointLabel = (row: PhotoWaypoint) => {
+  if (row.waypointIndex != null) {
+    return `途经点 ${row.waypointIndex + 1}`
+  }
+  return '（历史坐标点）'
+}
+
+const syncPhotoBindingsOnRemoveWaypoint = (removedIndex: number) => {
+  photoPoints.value = photoPoints.value
+    .filter((p) => p.waypointIndex !== removedIndex)
+    .map((p) => {
+      if (p.waypointIndex != null && p.waypointIndex > removedIndex) {
+        return { ...p, waypointIndex: p.waypointIndex - 1 }
+      }
+      return p
+    })
 }
 
 const addWaypoint = () => waypoints.value.push(emptyPoint())
-const removeWaypoint = (i: number) => waypoints.value.splice(i, 1)
+const removeWaypoint = (i: number) => {
+  waypoints.value.splice(i, 1)
+  syncPhotoBindingsOnRemoveWaypoint(i)
+}
 const moveWaypoint = (i: number, dir: -1 | 1) => {
   const j = i + dir
   if (j < 0 || j >= waypoints.value.length) return
   const t = waypoints.value[i]
   waypoints.value[i] = waypoints.value[j]
   waypoints.value[j] = t
+  photoPoints.value.forEach((p) => {
+    if (p.waypointIndex === i) p.waypointIndex = j
+    else if (p.waypointIndex === j) p.waypointIndex = i
+  })
 }
 
-const addPhotoPoint = () => photoPoints.value.push(emptyPhotoPoint())
+const addPhotoPoint = () => {
+  if (!viaWaypointOptions.value.length) {
+    ElMessage.warning('请先添加并填写完整的途经航点')
+    return
+  }
+  photoPoints.value.push({
+    waypointIndex: viaWaypointOptions.value[0].value,
+    deviceIds: []
+  })
+}
 const removePhotoPoint = (i: number) => photoPoints.value.splice(i, 1)
 
 function toPhotoWaypoint(p: PhotoPointRow): PhotoWaypoint {
   return {
-    longitude: Number(p.longitude),
-    latitude: Number(p.latitude),
-    height: Number(p.height),
+    waypointIndex: p.waypointIndex,
     deviceIds: p.deviceIds?.length ? [...p.deviceIds] : []
   }
+}
+
+function isPhotoRowComplete(p: PhotoPointRow) {
+  return p.waypointIndex != null && waypoints.value[p.waypointIndex] && isPointComplete(waypoints.value[p.waypointIndex])
 }
 
 const flattenVisitOrder = (photos: PhotoWaypoint[]) =>
@@ -207,7 +265,16 @@ const submitPlan = async () => {
     return
   }
 
-  const photos = photoPoints.value.filter(isPointComplete).map(toPhotoWaypoint)
+  const incompletePhoto = photoPoints.value.find((p) => !isPhotoRowComplete(p))
+  if (incompletePhoto) {
+    ElMessage.warning('请为每个拍照点选择有效的途经航点')
+    return
+  }
+  const photos = photoPoints.value.map(toPhotoWaypoint)
+  if (photos.length && !buildPathPoints()) {
+    ElMessage.warning('拍照点依赖途经航点，请至少填写一个完整的途经航点')
+    return
+  }
   const payload: RoutePlanCreateRequest = {
     taskId: baseForm.taskId,
     mapId: Number(baseForm.mapId),
@@ -343,6 +410,7 @@ const parseJson = <T,>(raw: string | undefined, fallback: T): T => {
 
 const normalizePhotoWaypoints = (raw: PhotoWaypoint[] | GeoPoint[]): PhotoWaypoint[] =>
   raw.map((p) => ({
+    waypointIndex: 'waypointIndex' in p ? p.waypointIndex : undefined,
     longitude: p.longitude,
     latitude: p.latitude,
     height: p.height,
@@ -542,41 +610,36 @@ onMounted(async () => {
 
           <el-divider content-position="left">
             拍照航点
-            <el-text type="info" size="small" style="margin-left: 8px">每个拍照点可绑定多个巡检设备</el-text>
+            <el-text type="info" size="small" style="margin-left: 8px">绑定途经航点，每个拍照点可关联多台巡检设备</el-text>
           </el-divider>
           <div class="table-toolbar">
             <el-button type="primary" plain size="small" @click="addPhotoPoint">添加拍照点</el-button>
           </div>
           <el-table v-if="photoPoints.length" :data="photoPoints" border size="small" class="point-table">
             <el-table-column label="#" width="50" type="index" />
-            <el-table-column label="经度" min-width="120">
+            <el-table-column label="绑定途经航点" min-width="280">
               <template #default="{ row }">
-                <el-input-number
-                  v-model="row.longitude"
-                  :precision="6"
-                  :step="0.0001"
-                  controls-position="right"
-                  class="w-full"
-                />
+                <el-select v-model="row.waypointIndex" filterable placeholder="选择途经航点" class="w-full">
+                  <el-option
+                    v-for="opt in viaWaypointOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="纬度" min-width="120">
+            <el-table-column label="坐标（自动）" min-width="200">
               <template #default="{ row }">
-                <el-input-number
-                  v-model="row.latitude"
-                  :precision="6"
-                  :step="0.0001"
-                  controls-position="right"
-                  class="w-full"
-                />
+                <span v-if="row.waypointIndex != null && isPointComplete(waypoints[row.waypointIndex])" class="coord-preview">
+                  {{ Number(waypoints[row.waypointIndex].longitude).toFixed(6) }},
+                  {{ Number(waypoints[row.waypointIndex].latitude).toFixed(6) }},
+                  {{ waypoints[row.waypointIndex].height }}m
+                </span>
+                <span v-else class="text-muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column label="高度(m)" width="100">
-              <template #default="{ row }">
-                <el-input-number v-model="row.height" :min="0" :step="1" controls-position="right" class="w-full" />
-              </template>
-            </el-table-column>
-            <el-table-column label="绑定巡检设备" min-width="260">
+            <el-table-column label="绑定巡检设备" min-width="240">
               <template #default="{ row }">
                 <el-select
                   v-model="row.deviceIds"
@@ -740,9 +803,16 @@ onMounted(async () => {
         <el-divider content-position="left">拍照航点（含绑定设备）</el-divider>
         <el-table :data="detailParsed.photoPoints" border size="small" max-height="200">
           <el-table-column type="index" label="#" width="50" />
-          <el-table-column prop="longitude" label="经度" />
-          <el-table-column prop="latitude" label="纬度" />
-          <el-table-column prop="height" label="高度(m)" width="90" />
+          <el-table-column label="绑定途经航点" min-width="160">
+            <template #default="{ row }">
+              {{ detailWaypointLabel(row) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="坐标" min-width="180">
+            <template #default="{ row }">
+              {{ row.longitude }}, {{ row.latitude }}, {{ row.height }}m
+            </template>
+          </el-table-column>
           <el-table-column label="绑定设备" min-width="200">
             <template #default="{ row }">
               <template v-if="row.deviceIds?.length">
@@ -842,5 +912,10 @@ onMounted(async () => {
 }
 .text-muted {
   color: #909399;
+}
+.coord-preview {
+  font-size: 12px;
+  color: #606266;
+  word-break: break-all;
 }
 </style>

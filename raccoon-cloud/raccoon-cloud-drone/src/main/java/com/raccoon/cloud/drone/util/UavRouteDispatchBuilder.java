@@ -26,11 +26,14 @@ public final class UavRouteDispatchBuilder {
         payload.setAlgorithm(plan.getAlgorithm());
 
         List<GeoPoint> path = parseList(plan.getPathPoints(), new TypeReference<List<GeoPoint>>() {});
-        payload.setTakeoff(path.isEmpty() ? parsePoint(plan.getStartPoint()) : path.get(0));
-        payload.setLanding(path.isEmpty() ? parsePoint(plan.getEndPoint()) : path.get(path.size() - 1));
+        List<GeoPoint> fullPath =
+                path.isEmpty() ? List.of(parsePoint(plan.getStartPoint()), parsePoint(plan.getEndPoint())) : path;
+        payload.setTakeoff(fullPath.isEmpty() ? parsePoint(plan.getStartPoint()) : fullPath.get(0));
+        payload.setLanding(
+                fullPath.isEmpty() ? parsePoint(plan.getEndPoint()) : fullPath.get(fullPath.size() - 1));
         payload.setWaypoints(path);
-        List<PhotoWaypoint> photoWaypoints =
-                parseList(plan.getPhotoPoints(), new TypeReference<List<PhotoWaypoint>>() {});
+        List<PhotoWaypoint> photoWaypoints = PhotoWaypointUtils.resolveCoordinates(
+                parseList(plan.getPhotoPoints(), new TypeReference<List<PhotoWaypoint>>() {}), fullPath);
         payload.setPhotoWaypoints(photoWaypoints);
         if (PhotoWaypointUtils.hasBoundDevices(photoWaypoints)) {
             payload.setDeviceVisitOrder(PhotoWaypointUtils.flattenDeviceVisitOrder(photoWaypoints));
