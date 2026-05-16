@@ -31,6 +31,7 @@ function labelHeight(row: TowerCoordRow): number {
 function poleHeight(row: TowerCoordRow): number {
   if (row.role === 'drone_nest') return 12
   if (row.role === 'ground_station') return 8
+  if (row.role === 'tower_center' && row.structuralHeight != null) return row.structuralHeight
   return Math.max(...PATROL_TOWER_HEIGHTS)
 }
 
@@ -71,9 +72,16 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath()
 }
 
+function heightLine(row: TowerCoordRow): string {
+  if (row.role === 'tower_center' && row.structuralHeight != null) {
+    return `塔全高 ${row.structuralHeight} m`
+  }
+  return `高 ${row.height} m`
+}
+
 function addCoordMarker(group: THREE.Group, row: TowerCoordRow) {
   const style = styleForRow(row)
-  const sub = `经 ${row.longitude.toFixed(6)}\n纬 ${row.latitude.toFixed(6)}\n高 ${row.height} m`
+  const sub = `经 ${row.longitude.toFixed(6)}\n纬 ${row.latitude.toFixed(6)}\n${heightLine(row)}`
   const sprite = makeLabelSprite(row.label, sub, style)
   sprite.position.set(row.scene.x, labelHeight(row), row.scene.z)
   group.add(sprite)

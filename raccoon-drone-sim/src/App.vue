@@ -76,7 +76,14 @@ function roleLabel(role: TowerCoordRow['role']) {
 }
 
 async function copyTowerCoord(row: TowerCoordRow) {
-  const text = formatCoordForBackend(row)
+  let target = row
+  if (row.role === 'tower_center') {
+    const photo = patrolTowerCoordRows.value.find(
+      (r) => r.role === 'photo_inspection' && r.index === row.index
+    )
+    if (photo) target = photo
+  }
+  const text = formatCoordForBackend(target)
   try {
     await navigator.clipboard.writeText(text)
     ElMessage.success(`已复制：${row.label}`)
@@ -1171,7 +1178,15 @@ function try65535Demo() {
             </el-table-column>
             <el-table-column prop="longitude" label="经度" min-width="88" />
             <el-table-column prop="latitude" label="纬度" min-width="88" />
-            <el-table-column prop="height" label="高(m)" width="52" />
+            <el-table-column label="高(m)" width="56">
+              <template #default="{ row }">
+                <span v-if="row.role === 'tower_center' && row.structuralHeight != null" class="text-[9px]">
+                  {{ row.structuralHeight }}
+                  <span class="text-[var(--ia-muted)]">全高</span>
+                </span>
+                <span v-else>{{ row.height }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="" width="40" align="center">
               <template #default="{ row }">
                 <el-button type="primary" link size="small" title="复制 经度,纬度,高度" @click="copyTowerCoord(row)">

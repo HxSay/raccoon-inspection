@@ -15,8 +15,11 @@ export interface TowerCoordRow {
   scene: { x: number; y: number; z: number }
   longitude: number
   latitude: number
+  /** WGS84 高度：航点填后台；杆塔中心行为塔脚海拔 */
   height: number
   role: 'tower_center' | 'photo_inspection' | 'drone_nest' | 'ground_station' | 'home_flight'
+  /** 杆塔构架全高（米），仅展示用 */
+  structuralHeight?: number
 }
 
 function toRow(
@@ -38,14 +41,14 @@ export function getPatrolTowerCoordinates(laneIndex = 0): TowerCoordRow[] {
 
   PATROL_TOWER_XS.forEach((x, i) => {
     const h = PATROL_TOWER_HEIGHTS[i]! + (laneIndex > 0 ? (laneIndex - 1) * 1.1 : 0)
-    rows.push(
-      toRow({
-        index: i + 1,
-        label: `杆塔 ${i + 1}`,
-        scene: { x, y: 4, z: zRow },
-        role: 'tower_center'
-      })
-    )
+    const center = toRow({
+      index: i + 1,
+      label: `杆塔 ${i + 1}`,
+      scene: { x, y: 4, z: zRow },
+      role: 'tower_center'
+    })
+    center.structuralHeight = h
+    rows.push(center)
 
     const photoY = Math.max(portalTowerMiddleArmWorldY(h) + 8, 36)
     rows.push(
