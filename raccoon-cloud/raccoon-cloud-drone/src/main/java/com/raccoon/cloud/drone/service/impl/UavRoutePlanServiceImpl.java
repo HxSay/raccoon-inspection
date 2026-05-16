@@ -7,6 +7,7 @@ import com.raccoon.cloud.drone.dto.GeoPoint;
 import com.raccoon.cloud.drone.dto.PhotoWaypoint;
 import com.raccoon.cloud.drone.dto.RoutePlanCreateRequest;
 import com.raccoon.cloud.drone.dto.RoutePlanView;
+import com.raccoon.cloud.drone.dto.UavRouteDispatchPayload;
 import com.raccoon.cloud.drone.entity.UavRoutePlan;
 import com.raccoon.cloud.drone.util.UavRouteDispatchBuilder;
 import com.raccoon.cloud.drone.mapper.UavRoutePlanMapper;
@@ -90,5 +91,22 @@ public class UavRoutePlanServiceImpl extends ServiceImpl<UavRoutePlanMapper, Uav
         view.setPlan(plan);
         view.setDispatch(UavRouteDispatchBuilder.fromPlan(plan));
         return view;
+    }
+
+    @Override
+    public UavRouteDispatchPayload getDispatchByUavAndTask(Long uavId, Long taskId) {
+        if (uavId == null || taskId == null) {
+            throw new IllegalArgumentException("无人机ID和巡检任务ID不能为空");
+        }
+        UavRoutePlan plan = lambdaQuery()
+                .eq(UavRoutePlan::getUavId, uavId)
+                .eq(UavRoutePlan::getTaskId, taskId)
+                .orderByDesc(UavRoutePlan::getId)
+                .last("LIMIT 1")
+                .one();
+        if (plan == null) {
+            throw new IllegalArgumentException("未找到该无人机与巡检任务对应的路径规划");
+        }
+        return UavRouteDispatchBuilder.fromPlan(plan);
     }
 }

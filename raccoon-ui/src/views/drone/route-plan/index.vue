@@ -6,6 +6,7 @@ import {
   droneRoutePlanCreate,
   droneRoutePlanPage,
   droneRoutePlanGetById,
+  droneRoutePlanGetDispatch,
   droneMapOptions,
   droneUavOptions,
   type GeoPoint,
@@ -44,6 +45,9 @@ const emptyPhotoPoint = (): PhotoPointRow => ({
 
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
+const testLoading = ref(false)
+const testDialogVisible = ref(false)
+const testDispatchJson = ref('')
 
 const baseForm = reactive({
   taskId: undefined as number | undefined,
@@ -242,6 +246,39 @@ function isPhotoRowComplete(p: PhotoPointRow) {
 const flattenVisitOrder = (photos: PhotoWaypoint[]) =>
   photos.flatMap((wp) => wp.deviceIds ?? []).filter((id) => id != null)
 
+const testFetchDispatch = async () => {
+  if (baseForm.uavId == null) {
+    ElMessage.warning('请先选择无人机')
+    return
+  }
+  if (baseForm.taskId == null) {
+    ElMessage.warning('请先选择巡检任务')
+    return
+  }
+  testLoading.value = true
+  try {
+    const res: any = await droneRoutePlanGetDispatch({
+      uavId: Number(baseForm.uavId),
+      taskId: Number(baseForm.taskId)
+    })
+    const dispatch = res.data as UavRouteDispatchPayload
+    lastDispatch.value = dispatch
+    testDispatchJson.value = JSON.stringify(dispatch, null, 2)
+    const pageRes: any = await droneRoutePlanPage({
+      uavId: Number(baseForm.uavId),
+      taskId: Number(baseForm.taskId),
+      current: 1,
+      size: 1
+    })
+    lastResult.value = pageRes.data?.records?.[0] ?? null
+    testDialogVisible.value = true
+    activeTab.value = 'result'
+    ElMessage.success('已获取巡检路径 JSON')
+  } finally {
+    testLoading.value = false
+  }
+}
+
 const resetPlanForm = () => {
   baseForm.taskId = undefined
   baseForm.mapId = undefined
@@ -314,9 +351,10 @@ const dispatchJsonText = computed(() => {
 })
 
 const copyDispatchJson = async () => {
-  if (!dispatchJsonText.value) return
+  const text = testDispatchJson.value || dispatchJsonText.value
+  if (!text) return
   try {
-    await navigator.clipboard.writeText(dispatchJsonText.value)
+    await navigator.clipboard.writeText(text)
     ElMessage.success('已复制下发 JSON')
   } catch {
     ElMessage.error('复制失败，请手动选择复制')
@@ -669,6 +707,9 @@ onMounted(async () => {
 
           <div class="form-actions">
             <el-button type="primary" :loading="submitting" @click="submitPlan">生成并保存规划</el-button>
+            <el-button type="warning" plain :loading="testLoading" @click="testFetchDispatch">
+              测试获取路径 JSON
+            </el-button>
             <el-button @click="resetPlanForm">重置</el-button>
           </div>
         </el-form>
@@ -776,6 +817,14 @@ onMounted(async () => {
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="testDialogVisible" title="测试：巡检路径 JSON" width="720px" destroy-on-close>
+      <pre class="dispatch-json dispatch-json--dialog">{{ testDispatchJson }}</pre>
+      <template #footer>
+        <el-button @click="testDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="copyDispatchJson">复制 JSON</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="detailVisible" title="路径规划详情" width="900px" destroy-on-close>
       <template v-if="detailRow">

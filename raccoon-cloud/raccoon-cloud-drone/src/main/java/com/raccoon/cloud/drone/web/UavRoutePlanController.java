@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.raccoon.cloud.drone.dto.RoutePlanCreateRequest;
 import com.raccoon.cloud.drone.dto.RoutePlanView;
+import com.raccoon.cloud.drone.dto.UavRouteDispatchPayload;
 import com.raccoon.cloud.drone.entity.UavRoutePlan;
 import com.raccoon.cloud.drone.service.UavRoutePlanService;
 import com.raccoon.common.result.HxResult;
@@ -27,6 +28,17 @@ public class UavRoutePlanController {
     @PostMapping
     public HxResult<RoutePlanView> create(@Valid @RequestBody RoutePlanCreateRequest request) {
         return HxResult.success(uavRoutePlanService.planAndSave(request));
+    }
+
+    /**
+     * 按无人机 ID + 巡检任务 ID 获取最新路径规划的下发 JSON（用于联调/测试）
+     */
+    @GetMapping("/dispatch")
+    public HxResult<UavRouteDispatchPayload> getDispatchByUavAndTask(
+            @RequestParam("uavId") Long uavId,
+            @RequestParam("taskId") Long taskId
+    ) {
+        return HxResult.success(uavRoutePlanService.getDispatchByUavAndTask(uavId, taskId));
     }
 
     @GetMapping("/{id}")
