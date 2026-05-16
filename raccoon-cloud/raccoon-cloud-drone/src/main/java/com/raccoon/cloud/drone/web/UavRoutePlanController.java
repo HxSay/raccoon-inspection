@@ -3,6 +3,7 @@ package com.raccoon.cloud.drone.web;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.raccoon.cloud.drone.dto.RoutePlanCreateRequest;
+import com.raccoon.cloud.drone.dto.RoutePlanView;
 import com.raccoon.cloud.drone.entity.UavRoutePlan;
 import com.raccoon.cloud.drone.service.UavRoutePlanService;
 import com.raccoon.common.result.HxResult;
@@ -24,14 +25,14 @@ public class UavRoutePlanController {
     private final UavRoutePlanService uavRoutePlanService;
 
     @PostMapping
-    public HxResult<UavRoutePlan> create(@Valid @RequestBody RoutePlanCreateRequest request) {
+    public HxResult<RoutePlanView> create(@Valid @RequestBody RoutePlanCreateRequest request) {
         return HxResult.success(uavRoutePlanService.planAndSave(request));
     }
 
     @GetMapping("/{id}")
-    public HxResult<UavRoutePlan> getById(@PathVariable("id") Long id) {
+    public HxResult<RoutePlanView> getById(@PathVariable("id") Long id) {
         UavRoutePlan one = uavRoutePlanService.getById(id);
-        return one == null ? HxResult.fail("记录不存在") : HxResult.success(one);
+        return one == null ? HxResult.fail("记录不存在") : HxResult.success(uavRoutePlanService.toView(one));
     }
 
     @GetMapping("/page")

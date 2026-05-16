@@ -5,7 +5,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raccoon.cloud.drone.dto.GeoPoint;
 import com.raccoon.cloud.drone.dto.RoutePlanCreateRequest;
+import com.raccoon.cloud.drone.dto.RoutePlanView;
 import com.raccoon.cloud.drone.entity.UavRoutePlan;
+import com.raccoon.cloud.drone.util.UavRouteDispatchBuilder;
 import com.raccoon.cloud.drone.mapper.UavRoutePlanMapper;
 import com.raccoon.cloud.drone.service.UavRoutePlanService;
 import com.raccoon.cloud.drone.util.GeoPathUtils;
@@ -31,7 +33,7 @@ public class UavRoutePlanServiceImpl extends ServiceImpl<UavRoutePlanMapper, Uav
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public UavRoutePlan planAndSave(RoutePlanCreateRequest request) {
+    public RoutePlanView planAndSave(RoutePlanCreateRequest request) {
         GeoPoint start = PointStringParser.parseLngLatHeight(request.getStartPoint());
         GeoPoint end = PointStringParser.parseLngLatHeight(request.getEndPoint());
 
@@ -72,6 +74,14 @@ public class UavRoutePlanServiceImpl extends ServiceImpl<UavRoutePlanMapper, Uav
         }
 
         save(row);
-        return row;
+        return toView(row);
+    }
+
+    @Override
+    public RoutePlanView toView(UavRoutePlan plan) {
+        RoutePlanView view = new RoutePlanView();
+        view.setPlan(plan);
+        view.setDispatch(UavRouteDispatchBuilder.fromPlan(plan));
+        return view;
     }
 }

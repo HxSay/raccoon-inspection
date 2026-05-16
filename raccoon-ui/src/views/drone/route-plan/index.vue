@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import PointInputs, { type PointTriple } from './PointInputs.vue'
 import {
@@ -11,6 +11,8 @@ import {
   type GeoPoint,
   type UavRoutePlan,
   type RoutePlanCreateRequest,
+  type RoutePlanView,
+  type UavRouteDispatchPayload,
   type UavMapOption,
   type UavInfoOption
 } from '@/api/drone'
@@ -221,7 +223,14 @@ const submitPlan = async () => {
   try {
     const res: any = await droneRoutePlanCreate(payload)
     ElMessage.success('路径规划已保存')
-    lastResult.value = res.data
+    const data = res.data
+    if (data?.plan) {
+      lastResult.value = data.plan
+      lastDispatch.value = data.dispatch
+    } else {
+      lastResult.value = data
+      lastDispatch.value = buildDispatchFromPlan(data)
+    }
     activeTab.value = 'result'
     loadPage()
   } finally {
@@ -230,6 +239,22 @@ const submitPlan = async () => {
 }
 
 const lastResult = ref<UavRoutePlan | null>(null)
+const lastDispatch = ref<UavRouteDispatchPayload | null>(null)
+
+const dispatchJsonText = computed(() => {
+  if (!lastDispatch.value) return ''
+  return JSON.stringify(lastDispatch.value, null, 2)
+})
+
+const copyDispatchJson = async () => {
+  if (!dispatchJsonText.value) return
+  try {
+    await navigator.clipboard.writeText(dispatchJsonText.value)
+    ElMessage.success('已复制下发 JSON')
+  } catch {
+    ElMessage.error('复制失败，请手动选择复制')
+  }
+}
 
 const listLoading = ref(false)
 const listQuery = ref({
@@ -269,6 +294,41 @@ const detailParsed = ref<{
   photoPoints: GeoPoint[]
   visitOrder: number[]
 }>({ pathPoints: [], photoPoints: [], visitOrder: [] })
+const detailDispatch = ref<UavRouteDispatchPayload | null>(null)
+
+const detailDispatchJson = computed(() => {
+  if (!detailDispatch.value) return ''
+  return JSON.stringify(detailDispatch.value, null, 2)
+})
+
+const buildDispatchFromPlan = (plan: UavRoutePlan): UavRouteDispatchPayload => {
+  const path = parseJson<GeoPoint[]>(plan.pathPoints, [])
+  const takeoff = path[0] ?? parsePointString(plan.startPoint)
+  const landing = path.length ? path[path.length - 1] : parsePointString(plan.endPoint)
+  return {
+    planId: plan.id,
+    taskId: plan.taskId,
+    mapId: plan.mapId,
+    uavId: plan.uavId,
+    algorithm: plan.algorithm,
+    takeoff,
+    landing,
+    waypoints: path,
+    photoWaypoints: parseJson(plan.photoPoints, []),
+    deviceVisitOrder: parseJson(plan.visitOrder, []),
+    estimated: {
+      distanceM: plan.totalDistance,
+      durationSec: plan.estimatedTime,
+      batteryPct: plan.estimatedBattery
+    }
+  }
+}
+
+const parsePointString = (raw: string): GeoPoint | undefined => {
+  const p = raw.split(',')
+  if (p.length < 3) return undefined
+  return { longitude: Number(p[0]), latitude: Number(p[1]), height: Number(p[2]) }
+}
 
 const parseJson = <T,>(raw: string | undefined, fallback: T): T => {
   if (!raw) return fallback
@@ -283,9 +343,17 @@ const openDetail = async (row: UavRoutePlan) => {
   if (row.id == null) return
   try {
     const res: any = await droneRoutePlanGetById(row.id)
-    detailRow.value = res.data
+    const data = res.data
+    if (data?.plan) {
+      detailRow.value = data.plan
+      detailDispatch.value = data.dispatch
+    } else {
+      detailRow.value = data
+      detailDispatch.value = buildDispatchFromPlan(data)
+    }
   } catch {
     detailRow.value = row
+    detailDispatch.value = buildDispatchFromPlan(row)
   }
   detailParsed.value = {
     pathPoints: parseJson(detailRow.value?.pathPoints, []),
@@ -535,19 +603,34 @@ onMounted(async () => {
       </el-tab-pane>
 
       <el-tab-pane label="规划结果" name="result">
-        <el-card v-if="lastResult" shadow="never" class="result-card">
-          <template #header>最近一次规划</template>
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="规划 ID">{{ lastResult.id }}</el-descriptions-item>
-            <el-descriptions-item label="算法">{{ lastResult.algorithm }}</el-descriptions-item>
-            <el-descriptions-item label="总距离">{{ lastResult.totalDistance?.toFixed(2) }} m</el-descriptions-item>
-            <el-descriptions-item label="预计耗时">{{ formatDuration(lastResult.estimatedTime) }}</el-descriptions-item>
-            <el-descriptions-item label="预计耗电">{{ lastResult.estimatedBattery?.toFixed(1) }} %</el-descriptions-item>
-            <el-descriptions-item label="创建时间">{{ lastResult.createTime }}</el-descriptions-item>
-            <el-descriptions-item label="起飞点" :span="2">{{ lastResult.startPoint }}</el-descriptions-item>
-            <el-descriptions-item label="降落点" :span="2">{{ lastResult.endPoint }}</el-descriptions-item>
-          </el-descriptions>
-        </el-card>
+        <el-row v-if="lastResult" :gutter="16">
+          <el-col :xs="24" :lg="10">
+            <el-card shadow="never" class="result-card">
+              <template #header>最近一次规划</template>
+              <el-descriptions :column="1" border size="small">
+                <el-descriptions-item label="规划 ID">{{ lastResult.id }}</el-descriptions-item>
+                <el-descriptions-item label="算法">{{ lastResult.algorithm }}</el-descriptions-item>
+                <el-descriptions-item label="总距离">{{ lastResult.totalDistance?.toFixed(2) }} m</el-descriptions-item>
+                <el-descriptions-item label="预计耗时">{{ formatDuration(lastResult.estimatedTime) }}</el-descriptions-item>
+                <el-descriptions-item label="预计耗电">{{ lastResult.estimatedBattery?.toFixed(1) }} %</el-descriptions-item>
+                <el-descriptions-item label="创建时间">{{ lastResult.createTime }}</el-descriptions-item>
+                <el-descriptions-item label="起飞点">{{ lastResult.startPoint }}</el-descriptions-item>
+                <el-descriptions-item label="降落点">{{ lastResult.endPoint }}</el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :lg="14">
+            <el-card shadow="never" class="result-card json-card">
+              <template #header>
+                <div class="json-card-header">
+                  <span>下发无人机 JSON</span>
+                  <el-button type="primary" link @click="copyDispatchJson">复制</el-button>
+                </div>
+              </template>
+              <pre class="dispatch-json">{{ dispatchJsonText }}</pre>
+            </el-card>
+          </el-col>
+        </el-row>
         <el-empty v-else description="提交规划后将在此展示结果" />
       </el-tab-pane>
 
@@ -622,7 +705,7 @@ onMounted(async () => {
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="detailVisible" title="路径规划详情" width="720px" destroy-on-close>
+    <el-dialog v-model="detailVisible" title="路径规划详情" width="900px" destroy-on-close>
       <template v-if="detailRow">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="ID">{{ detailRow.id }}</el-descriptions-item>
@@ -655,8 +738,11 @@ onMounted(async () => {
         <el-empty v-if="!detailParsed.photoPoints.length" description="无拍照航点" :image-size="48" />
 
         <el-divider content-position="left">设备访问顺序</el-divider>
-        <el-tag v-for="(id, i) in detailParsed.visitOrder" :key="id" style="margin: 4px">{{ i + 1 }}. {{ id }}</el-tag>
+        <el-tag v-for="(id, i) in detailParsed.visitOrder" :key="id" style="margin: 4px">{{ i + 1 }}. {{ deviceLabel(id) }}</el-tag>
         <el-empty v-if="!detailParsed.visitOrder.length" description="未指定访问顺序" :image-size="48" />
+
+        <el-divider content-position="left">下发无人机 JSON</el-divider>
+        <pre class="dispatch-json dispatch-json--dialog">{{ detailDispatchJson }}</pre>
       </template>
     </el-dialog>
   </div>
@@ -714,6 +800,28 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 .result-card {
-  max-width: 900px;
+  margin-bottom: 16px;
+}
+.json-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dispatch-json {
+  margin: 0;
+  padding: 12px;
+  max-height: 420px;
+  overflow: auto;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border-radius: 6px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.dispatch-json--dialog {
+  max-height: 280px;
 }
 </style>

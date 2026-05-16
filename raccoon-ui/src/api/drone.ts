@@ -35,6 +35,29 @@ export interface UavRoutePlan {
   createTime?: string
 }
 
+export interface UavRouteDispatchPayload {
+  planId?: number
+  taskId?: number
+  mapId: number
+  uavId: number
+  algorithm: string
+  takeoff?: GeoPoint
+  landing?: GeoPoint
+  waypoints: GeoPoint[]
+  photoWaypoints: GeoPoint[]
+  deviceVisitOrder: number[]
+  estimated?: {
+    distanceM: number
+    durationSec: number
+    batteryPct: number
+  }
+}
+
+export interface RoutePlanView {
+  plan: UavRoutePlan
+  dispatch: UavRouteDispatchPayload
+}
+
 export interface RoutePlanPageResult {
   records: UavRoutePlan[]
   total: number
