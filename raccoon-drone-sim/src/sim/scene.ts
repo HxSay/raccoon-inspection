@@ -63,14 +63,15 @@ function addWireSpan(
 ): void {
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
   const span = a.distanceTo(b)
-  mid.y -= Math.min(8.5, span * sagScale)
+  const sagM = Math.min(span * 0.038, Math.max(14, span * sagScale))
+  mid.y -= sagM
   const curve = new THREE.CatmullRomCurve3([a.clone(), mid, b.clone()], false, 'catmullrom', 0.35)
-  const tubularSegments = Math.max(48, Math.floor(span * 1.2))
+  const tubularSegments = Math.min(320, Math.max(64, Math.floor(span * 0.12)))
   const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSegments, 0.052, 6, false), mat)
   tube.castShadow = true
   world.add(tube)
 
-  const nSp = Math.max(2, Math.floor(span / 14))
+  const nSp = Math.min(14, Math.max(2, Math.floor(span / 120)))
   for (let s = 1; s <= nSp; s++) {
     const u = s / (nSp + 1)
     const p = curve.getPointAt(u)
@@ -101,7 +102,7 @@ function buildLineBetweenTowers(
 
 export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSceneBundle {
   const scene = new THREE.Scene()
-  scene.fog = new THREE.FogExp2(0xd4e8dc, 0.0009)
+  scene.fog = new THREE.FogExp2(0xd4e8dc, 0.00022)
 
   const world = new THREE.Group()
   scene.add(world)
@@ -111,9 +112,10 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   const metal = createGalvanizedMetalTexture()
   const conc = createConcreteTexture()
 
-  const terrainGeo = new THREE.PlaneGeometry(720, 720, 192, 192)
+  const terrainSize = 5600
+  const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, 128, 128)
   terrainGeo.rotateX(-Math.PI / 2)
-  displaceTerrain(terrainGeo, 0.58)
+  displaceTerrain(terrainGeo, 0.42)
 
   const terrainMat = new THREE.MeshStandardMaterial({
     roughnessMap: groundRough,
@@ -193,12 +195,12 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   sun.shadow.mapSize.set(4096, 4096)
   sun.shadow.bias = -0.00025
   sun.shadow.normalBias = 0.02
-  sun.shadow.camera.near = 30
-  sun.shadow.camera.far = 520
-  sun.shadow.camera.left = -280
-  sun.shadow.camera.right = 280
-  sun.shadow.camera.top = 280
-  sun.shadow.camera.bottom = -280
+  sun.shadow.camera.near = 40
+  sun.shadow.camera.far = 3200
+  sun.shadow.camera.left = -2600
+  sun.shadow.camera.right = 2600
+  sun.shadow.camera.top = 2600
+  sun.shadow.camera.bottom = -2600
   scene.add(sun)
 
   const pmrem = new THREE.PMREMGenerator(renderer)

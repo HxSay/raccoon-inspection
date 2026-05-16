@@ -14,6 +14,13 @@ import {
   PHOTO_GIMBAL_PITCH_DEG,
   RTK_MODE_FIXED
 } from './constants'
+import {
+  PATROL_CORRIDOR_Z0,
+  PATROL_NEST_HOME,
+  PATROL_TOWER_HEIGHTS,
+  PATROL_TOWER_XS
+} from './scenePatrolLayout'
+import { portalTowerMiddleArmWorldY } from './portalTower'
 import { sceneToGps } from './aiDetect'
 import type { CloudPathPoint, DjiWaypoint, DjiWaypointMission } from './types'
 import type { DeployMode } from './types'
@@ -46,16 +53,39 @@ async function netDelay(deployMode: DeployMode): Promise<void> {
   await new Promise((r) => setTimeout(r, ms))
 }
 
-/** 基准走廊（lane 0）航点；多机时整条沿 Z 平移 `laneIndex * PATROL_LANE_Z_SPACING_M` */
-const PATROL_BASE_CLOUD_PATH: CloudPathPoint[] = [
-  { id: 'wp0', x: 0, y: 35, z: 40, isPhoto: false },
-  { id: 'wp1', x: 40, y: 38, z: 10, isPhoto: true },
-  { id: 'wp2', x: 100, y: 42, z: -15, isPhoto: false },
-  { id: 'wp3', x: 160, y: 45, z: -30, isPhoto: true },
-  { id: 'wp4', x: 220, y: 40, z: -25, isPhoto: false },
-  { id: 'wp5', x: 260, y: 36, z: 5, isPhoto: true },
-  { id: 'wp6', x: 200, y: 34, z: 35, isPhoto: false }
-]
+/** 基准走廊（lane 0）航点：沿特高压线路各塔南侧巡检，档距 1000 m */
+function buildPatrolBaseCloudPath(): CloudPathPoint[] {
+  const photoZ = PATROL_CORRIDOR_Z0 - 12
+  const points: CloudPathPoint[] = [
+    {
+      id: 'wp0',
+      x: PATROL_NEST_HOME.x,
+      y: 35,
+      z: PATROL_NEST_HOME.z,
+      isPhoto: false
+    }
+  ]
+  PATROL_TOWER_XS.forEach((x, i) => {
+    const y = Math.max(portalTowerMiddleArmWorldY(PATROL_TOWER_HEIGHTS[i]!) + 8, 36)
+    points.push({
+      id: `wp-t${i + 1}`,
+      x,
+      y,
+      z: photoZ,
+      isPhoto: i % 2 === 0
+    })
+  })
+  points.push({
+    id: 'wp-end',
+    x: PATROL_NEST_HOME.x,
+    y: 35,
+    z: PATROL_NEST_HOME.z,
+    isPhoto: false
+  })
+  return points
+}
+
+const PATROL_BASE_CLOUD_PATH: CloudPathPoint[] = buildPatrolBaseCloudPath()
 
 /**
  * 模拟云端下发规划路径（JSON）。生产环境此处对接真实云端接口。

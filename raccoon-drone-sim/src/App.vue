@@ -19,6 +19,7 @@ import { fetchRouteDispatch } from '@/api/droneRoute'
 import { dispatchToCloudPath, dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
 import type { CloudPathPoint } from '@/sim/types'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
+import { PATROL_AERIAL_CAMERA, PATROL_CORRIDOR_Z0, PATROL_SCENE_LOOK } from '@/sim/scenePatrolLayout'
 import {
   formatCoordForBackend,
   getPatrolReferenceTable,
@@ -230,9 +231,9 @@ function applyViewMode(prev?: 'aerial' | 'ground') {
     }
     camera.fov = 60
     camera.updateProjectionMatrix()
-    // 站在起降区南侧略偏东，仰望单排线路走廊与杆塔（塔列 z≈-35）
-    camera.position.set(38, 1.72, 58)
-    controls.target.set(12, 38, -22)
+    // 站在起降区南侧略偏东，仰望特高压走廊
+    camera.position.set(48, 1.72, 58)
+    controls.target.set(0, 42, PATROL_CORRIDOR_Z0)
     controls.minDistance = 0.35
     controls.maxDistance = 220
     controls.minPolarAngle = 0.08
@@ -244,11 +245,11 @@ function applyViewMode(prev?: 'aerial' | 'ground') {
       camera.position.copy(savedAerialOrbit.position)
       controls.target.copy(savedAerialOrbit.target)
     } else {
-      camera.position.set(-95, 135, 175)
-      controls.target.copy(home)
+      camera.position.set(PATROL_AERIAL_CAMERA.x, PATROL_AERIAL_CAMERA.y, PATROL_AERIAL_CAMERA.z)
+      controls.target.set(PATROL_SCENE_LOOK.x, PATROL_SCENE_LOOK.y, PATROL_SCENE_LOOK.z)
     }
     controls.minDistance = 35
-    controls.maxDistance = 520
+    controls.maxDistance = 4200
     controls.minPolarAngle = 0
     controls.maxPolarAngle = Math.PI * 0.49
   }
@@ -327,8 +328,8 @@ function restorePatrolCameraAfterSubstation() {
     camera.position.copy(savedPatrolCamera.position)
     controls.target.copy(savedPatrolCamera.target)
   } else {
-    camera.position.set(-95, 135, 175)
-    controls.target.copy(sceneBundle.homePosition)
+    camera.position.set(PATROL_AERIAL_CAMERA.x, PATROL_AERIAL_CAMERA.y, PATROL_AERIAL_CAMERA.z)
+    controls.target.set(PATROL_SCENE_LOOK.x, PATROL_SCENE_LOOK.y, PATROL_SCENE_LOOK.z)
   }
   camera.fov = viewMode.value === 'ground' ? 60 : 52
   camera.updateProjectionMatrix()
@@ -339,7 +340,7 @@ function restorePatrolCameraAfterSubstation() {
     controls.maxPolarAngle = Math.PI * 0.499
   } else {
     controls.minDistance = 35
-    controls.maxDistance = 520
+    controls.maxDistance = 4200
     controls.minPolarAngle = 0
     controls.maxPolarAngle = Math.PI * 0.49
   }
@@ -593,16 +594,16 @@ function initThree(): () => void {
     patrolDrones.push(d)
   }
 
-  camera = new THREE.PerspectiveCamera(52, Math.max(0.01, w / h), 0.4, 1200)
-  camera.position.set(-95, 135, 175)
-  camera.lookAt(homePosition)
+  camera = new THREE.PerspectiveCamera(52, Math.max(0.01, w / h), 0.4, 8000)
+  camera.position.set(PATROL_AERIAL_CAMERA.x, PATROL_AERIAL_CAMERA.y, PATROL_AERIAL_CAMERA.z)
+  camera.lookAt(PATROL_SCENE_LOOK.x, PATROL_SCENE_LOOK.y, PATROL_SCENE_LOOK.z)
 
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.dampingFactor = 0.08
-  controls.target.copy(homePosition)
+  controls.target.set(PATROL_SCENE_LOOK.x, PATROL_SCENE_LOOK.y, PATROL_SCENE_LOOK.z)
   controls.minDistance = 35
-  controls.maxDistance = 520
+  controls.maxDistance = 4200
   controls.maxPolarAngle = Math.PI * 0.49
   controls.rotateSpeed = 0.65
   controls.zoomSpeed = 0.85

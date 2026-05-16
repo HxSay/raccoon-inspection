@@ -4,6 +4,9 @@ import {
   getPatrolTowerCoordinates,
   type TowerCoordRow
 } from './towerInspectionCoords'
+import { PATROL_TOWER_HEIGHTS } from './scenePatrolLayout'
+
+const PATROL_TOWER_LABEL_LIFT = Math.max(...PATROL_TOWER_HEIGHTS) + 14
 
 type LabelStyle = { stroke: string; title: string; body: string; pole: number }
 
@@ -22,13 +25,13 @@ function styleForRow(row: TowerCoordRow): LabelStyle {
 function labelHeight(row: TowerCoordRow): number {
   if (row.role === 'drone_nest') return row.scene.y + 14
   if (row.role === 'ground_station') return row.scene.y + 9
-  return row.scene.y + 72
+  return row.scene.y + PATROL_TOWER_LABEL_LIFT
 }
 
 function poleHeight(row: TowerCoordRow): number {
   if (row.role === 'drone_nest') return 12
   if (row.role === 'ground_station') return 8
-  return 68
+  return Math.max(...PATROL_TOWER_HEIGHTS)
 }
 
 function makeLabelSprite(text: string, subText: string, style: LabelStyle): THREE.Sprite {
