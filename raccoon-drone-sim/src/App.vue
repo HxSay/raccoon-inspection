@@ -69,7 +69,8 @@ const patrolTowerCoordRows = computed(() => getPatrolReferenceTable())
 function roleLabel(role: TowerCoordRow['role']) {
   if (role === 'tower_center') return '杆塔'
   if (role === 'photo_inspection') return '拍照'
-  if (role === 'home_nest') return '机巢'
+  if (role === 'drone_nest') return '机巢'
+  if (role === 'ground_station') return '地面站'
   return '起降'
 }
 

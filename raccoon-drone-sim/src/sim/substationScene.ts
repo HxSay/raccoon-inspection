@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { Sky } from 'three/examples/jsm/objects/Sky.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { createGalvanizedMetalTexture, createConcreteTexture, disposeTexture } from './textures'
+import { createPortalTower } from './portalTower'
 
 /**
  * 独立「变电站」程序化场景：站内硬化地面、围墙、主构架塔、门架、主变、支柱绝缘子/刀闸、母线与悬链。
@@ -191,76 +192,6 @@ function createDisconnectorRow(
     tops.push(new THREE.Vector3(x, hy - 0.1, z))
   }
   return tops
-}
-
-/**
- * 站内主构架塔（猫头式简化）：三层横担 + 绝缘子串底端挂点（局部坐标，相对塔根）。
- */
-function createPortalTower(
-  world: THREE.Group,
-  tx: number,
-  tz: number,
-  H: number,
-  steel: THREE.MeshStandardMaterial,
-  conc: THREE.MeshStandardMaterial,
-  insLight: THREE.MeshStandardMaterial,
-  insDark: THREE.MeshStandardMaterial
-): {
-  wireTips: THREE.Vector3[]
-} {
-  const tower = new THREE.Group()
-  tower.position.set(tx, 0, tz)
-  world.add(tower)
-
-  const base = new THREE.Mesh(new THREE.BoxGeometry(6.2, 1.9, 6.2), conc)
-  base.position.y = 0.95
-  base.castShadow = true
-  tower.add(base)
-
-  const corners: THREE.Vector3[] = []
-  const h = H
-  const steps = 9
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps
-    const y = 1.9 + t * (h - 2)
-    const w = THREE.MathUtils.lerp(2.85, 1.15, t)
-    corners.push(new THREE.Vector3(w, y, w))
-    corners.push(new THREE.Vector3(-w, y, w))
-    corners.push(new THREE.Vector3(-w, y, -w))
-    corners.push(new THREE.Vector3(w, y, -w))
-  }
-  for (let i = 0; i < steps; i++) {
-    for (let c = 0; c < 4; c++) {
-      const i0 = i * 4 + c
-      const i1 = i * 4 + ((c + 1) % 4)
-      const i2 = (i + 1) * 4 + c
-      const i3 = (i + 1) * 4 + ((c + 1) % 4)
-      addBrace(tower, steel, corners[i0], corners[i2], 0.22)
-      addBrace(tower, steel, corners[i0], corners[i1], 0.2)
-      addBrace(tower, steel, corners[i0], corners[i3], 0.18)
-    }
-  }
-
-  const armYs = [h * 0.52, h * 0.68, h * 0.84]
-  const armLens = [6.2, 9.2, 6.8]
-  const tips: THREE.Vector3[] = []
-
-  for (let li = 0; li < 3; li++) {
-    const y0 = armYs[li]
-    const half = armLens[li]
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.52, half * 2 + 0.4), steel)
-    beam.position.set(0, y0, 0)
-    beam.castShadow = true
-    tower.add(beam)
-
-    for (const sgn of [-1, 1]) {
-      const zTip = sgn * (half - 0.2)
-      const tip = addInsulatorHang(tower, y0 - 0.28, zTip, li === 1 ? 12 : 10, li === 1 ? insDark : insLight)
-      tips.push(new THREE.Vector3(tip.x + tx, tip.y, tip.z + tz))
-    }
-  }
-
-  return { wireTips: tips }
 }
 
 export function createSubstationScene(renderer: THREE.WebGLRenderer): SubstationSceneBundle {

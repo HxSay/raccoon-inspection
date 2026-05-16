@@ -3,11 +3,18 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { createTerrainRoughnessTexture, createGalvanizedMetalTexture, createConcreteTexture, disposeTexture } from './textures'
 import { PATROL_LANE_COUNT, PATROL_LANE_Z_SPACING_M } from './constants'
-import { PATROL_CORRIDOR_Z0, PATROL_TOWER_HEIGHTS, PATROL_TOWER_XS } from './scenePatrolLayout'
+import {
+  PATROL_CORRIDOR_Z0,
+  PATROL_GROUND_STATION,
+  PATROL_NEST_HOME,
+  PATROL_TOWER_HEIGHTS,
+  PATROL_TOWER_XS
+} from './scenePatrolLayout'
 import { createTowerCoordMarkers } from './towerCoordMarkers'
+import { createPortalTower, wireTipsToLineAnchors, type LineTowerWireAnchors } from './portalTower'
 
 /**
- * 写实风格电网巡检场景：草原式起伏地表、单/多排角钢塔与导线、物理天空与 IBL。
+ * 写实风格电网巡检场景：草原式起伏地表、构架塔（与变电站同款）与导线、物理天空与 IBL。
  * 依赖 WebGLRenderer 生成 PMREM（调用方传入 renderer）。
  */
 
@@ -45,170 +52,6 @@ function displaceTerrain(geo: THREE.PlaneGeometry, ampScale: number): void {
   geo.computeVertexNormals()
 }
 
-/** 单基杆塔上的挂线点（世界坐标）：左右各三相，索引 0=下相、1=中相、2=上相 */
-interface TowerWireAnchors {
-  left: THREE.Vector3[]
-  right: THREE.Vector3[]
-}
-
-/**
- * 在塔局部坐标系中创建一串悬式绝缘子（碟形简化），锚点挂在串的最下端（导线挂点）。
- */
-function addInsulatorString(
-  tower: THREE.Group,
-  localX: number,
-  localYBeam: number,
-  localZ: number,
-  discCount: number,
-  discSpacing: number,
-  discRadius: number,
-  insMat: THREE.MeshStandardMaterial
-): THREE.Object3D {
-  const g = new THREE.Group()
-  g.position.set(localX, localYBeam, localZ)
-  tower.add(g)
-  let y = -0.15
-  for (let i = 0; i < discCount; i++) {
-    const d = Math.max(0.12, discRadius * (0.92 - i * 0.02))
-    const disc = new THREE.Mesh(
-      new THREE.CylinderGeometry(d * 0.35, d * 0.42, discSpacing * 0.92, 10),
-      insMat
-    )
-    disc.position.y = y
-    disc.castShadow = true
-    g.add(disc)
-    y -= discSpacing
-  }
-  const anchor = new THREE.Object3D()
-  anchor.position.y = y + discSpacing * 0.35
-  g.add(anchor)
-  return anchor
-}
-
-/** 角钢斜材：薄方梁连接两点（局部坐标） */
-function addBrace(
-  tower: THREE.Group,
-  steel: THREE.MeshStandardMaterial,
-  a: THREE.Vector3,
-  b: THREE.Vector3,
-  thickness: number
-): void {
-  const dir = new THREE.Vector3().subVectors(b, a)
-  const len = dir.length()
-  if (len < 1e-3) return
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5)
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, thickness, len), steel)
-  mesh.position.copy(mid)
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.clone().normalize())
-  mesh.castShadow = true
-  tower.add(mesh)
-}
-
-/**
- * 猫头 / 酒杯塔简化：四腿格构、三层横担（中相最长）、绝缘子串底端挂线。
- * 线路走向为 +X，横担沿 ±Z 伸出。
- */
-function createTransmissionTower(
-  x: number,
-  z: number,
-  height: number,
-  world: THREE.Group,
-  steel: THREE.MeshStandardMaterial,
-  concMat: THREE.MeshStandardMaterial,
-  insMat: THREE.MeshStandardMaterial
-): TowerWireAnchors {
-  const tower = new THREE.Group()
-  tower.position.set(x, 0, z)
-
-  const base = new THREE.Mesh(new THREE.BoxGeometry(8.5, 2.4, 8.5), concMat)
-  base.position.y = 1.2
-  base.castShadow = true
-  base.receiveShadow = true
-  tower.add(base)
-
-  const y0 = 2.4
-  const hBody = height * 0.88
-  const yTop = y0 + hBody
-  const baseHalf = 3.6
-  const topHalf = 1.05
-
-  const corners = [
-    new THREE.Vector3(-baseHalf, y0, -baseHalf),
-    new THREE.Vector3(baseHalf, y0, -baseHalf),
-    new THREE.Vector3(baseHalf, y0, baseHalf),
-    new THREE.Vector3(-baseHalf, y0, baseHalf)
-  ]
-  const topCorners = [
-    new THREE.Vector3(-topHalf, yTop, -topHalf),
-    new THREE.Vector3(topHalf, yTop, -topHalf),
-    new THREE.Vector3(topHalf, yTop, topHalf),
-    new THREE.Vector3(-topHalf, yTop, topHalf)
-  ]
-
-  for (let i = 0; i < 4; i++) {
-    addBrace(tower, steel, corners[i], topCorners[i], 0.38)
-    addBrace(tower, steel, corners[i], topCorners[(i + 1) % 4], 0.32)
-  }
-  for (let i = 0; i < 4; i++) {
-    addBrace(tower, steel, corners[i], corners[(i + 1) % 4], 0.28)
-  }
-  const midRingY = y0 + hBody * 0.45
-  const midHalf = (baseHalf + topHalf) * 0.55
-  const midCorners = [
-    new THREE.Vector3(-midHalf, midRingY, -midHalf),
-    new THREE.Vector3(midHalf, midRingY, -midHalf),
-    new THREE.Vector3(midHalf, midRingY, midHalf),
-    new THREE.Vector3(-midHalf, midRingY, midHalf)
-  ]
-  for (let i = 0; i < 4; i++) {
-    addBrace(tower, steel, corners[i], midCorners[i], 0.3)
-    addBrace(tower, steel, midCorners[i], topCorners[i], 0.3)
-    addBrace(tower, steel, midCorners[i], midCorners[(i + 1) % 4], 0.26)
-  }
-
-  const mast = new THREE.Mesh(new THREE.BoxGeometry(1.0, hBody * 0.22, 1.0), steel)
-  mast.position.set(0, y0 + hBody * 0.52, 0)
-  mast.castShadow = true
-  tower.add(mast)
-
-  /** 三层横担：下、中、上 —— 半臂长沿 Z（中相最长） */
-  const armLevels: { yRel: number; halfLen: number }[] = [
-    { yRel: 0.34, halfLen: 6.8 },
-    { yRel: 0.52, halfLen: 10.2 },
-    { yRel: 0.7, halfLen: 5.6 }
-  ]
-
-  const anchors: TowerWireAnchors = { left: [], right: [] }
-
-  for (const arm of armLevels) {
-    const yArm = y0 + hBody * arm.yRel
-    const beam = new THREE.Mesh(
-      new THREE.BoxGeometry(0.55, 0.55, arm.halfLen * 2 + 1.2),
-      steel
-    )
-    beam.position.set(0, yArm, 0)
-    beam.castShadow = true
-    tower.add(beam)
-
-    const discN = 10
-    const discGap = 0.32
-    const rDisc = 0.26
-    const anchorL = addInsulatorString(tower, 0, yArm - 0.28, -arm.halfLen, discN, discGap, rDisc, insMat)
-    const anchorR = addInsulatorString(tower, 0, yArm - 0.28, arm.halfLen, discN, discGap, rDisc, insMat)
-
-    tower.updateMatrixWorld(true)
-    const wl = new THREE.Vector3()
-    const wr = new THREE.Vector3()
-    anchorL.getWorldPosition(wl)
-    anchorR.getWorldPosition(wr)
-    anchors.left.push(wl)
-    anchors.right.push(wr)
-  }
-
-  world.add(tower)
-  return anchors
-}
-
 /** 悬链：两挂点间下垂，使用 CatmullRom 过起点、中点、终点 */
 function addWireSpan(
   a: THREE.Vector3,
@@ -241,7 +84,7 @@ function addWireSpan(
 }
 
 function buildLineBetweenTowers(
-  anchors: TowerWireAnchors[],
+  anchors: LineTowerWireAnchors[],
   world: THREE.Group,
   mat: THREE.MeshStandardMaterial,
   spacerMat: THREE.MeshStandardMaterial
@@ -294,11 +137,17 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
     roughness: 0.4,
     envMapIntensity: 0.85
   })
-  const insMat = new THREE.MeshStandardMaterial({
-    color: 0xe6eef2,
-    roughness: 0.42,
-    metalness: 0.02,
-    envMapIntensity: 0.35
+  const insLight = new THREE.MeshStandardMaterial({
+    color: 0xd8e2ea,
+    roughness: 0.38,
+    metalness: 0.05,
+    envMapIntensity: 0.3
+  })
+  const insDark = new THREE.MeshStandardMaterial({
+    color: 0x1a1c1f,
+    roughness: 0.32,
+    metalness: 0.12,
+    envMapIntensity: 0.25
   })
   const wireMat = new THREE.MeshStandardMaterial({
     map: metal,
@@ -312,15 +161,16 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   const markSkip = (m: THREE.MeshStandardMaterial) => {
     m.userData.skipDispose = true
   }
-  ;[concMat, steel, insMat, wireMat, spacerMat].forEach(markSkip)
+  ;[concMat, steel, insLight, insDark, wireMat, spacerMat].forEach(markSkip)
 
   const corridorZ0 = PATROL_CORRIDOR_Z0
   for (let lane = 0; lane < PATROL_LANE_COUNT; lane++) {
     const zRow = corridorZ0 + lane * PATROL_LANE_Z_SPACING_M
-    const towerAnchors: TowerWireAnchors[] = []
+    const towerAnchors: LineTowerWireAnchors[] = []
     for (let i = 0; i < xs.length; i++) {
       const h = heights[i] + (PATROL_LANE_COUNT > 1 ? (lane - 1) * 1.1 : 0)
-      towerAnchors.push(createTransmissionTower(xs[i], zRow, h, world, steel, concMat, insMat))
+      const { wireTips } = createPortalTower(world, xs[i], zRow, h, steel, concMat, insLight, insDark)
+      towerAnchors.push(wireTipsToLineAnchors(wireTips))
     }
     buildLineBetweenTowers(towerAnchors, world, wireMat, spacerMat)
   }
@@ -361,10 +211,20 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
 
   const corridorHomes: THREE.Vector3[] = []
   for (let lane = 0; lane < PATROL_LANE_COUNT; lane++) {
-    corridorHomes.push(new THREE.Vector3(0, 3, 40 + lane * PATROL_LANE_Z_SPACING_M))
+    corridorHomes.push(
+      new THREE.Vector3(
+        PATROL_NEST_HOME.x,
+        PATROL_NEST_HOME.y,
+        PATROL_NEST_HOME.z + lane * PATROL_LANE_Z_SPACING_M
+      )
+    )
   }
   const homePosition = corridorHomes[0]!.clone()
-  const terminalPosition = new THREE.Vector3(-42, 0, 72)
+  const terminalPosition = new THREE.Vector3(
+    PATROL_GROUND_STATION.x,
+    PATROL_GROUND_STATION.y,
+    PATROL_GROUND_STATION.z
+  )
 
   const textures: THREE.Texture[] = [groundRough, metal, conc]
 
@@ -392,7 +252,8 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
     })
     steel.dispose()
     concMat.dispose()
-    insMat.dispose()
+    insLight.dispose()
+    insDark.dispose()
     wireMat.dispose()
     spacerMat.dispose()
   }

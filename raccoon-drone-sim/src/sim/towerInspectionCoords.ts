@@ -1,6 +1,13 @@
 import { PATROL_LANE_Z_SPACING_M } from './constants'
 import { sceneToGps } from './aiDetect'
-import { PATROL_CORRIDOR_Z0, PATROL_TOWER_HEIGHTS, PATROL_TOWER_XS } from './scenePatrolLayout'
+import { portalTowerMiddleArmWorldY } from './portalTower'
+import {
+  PATROL_CORRIDOR_Z0,
+  PATROL_GROUND_STATION,
+  PATROL_NEST_HOME,
+  PATROL_TOWER_HEIGHTS,
+  PATROL_TOWER_XS
+} from './scenePatrolLayout'
 
 export interface TowerCoordRow {
   index: number
@@ -9,7 +16,7 @@ export interface TowerCoordRow {
   longitude: number
   latitude: number
   height: number
-  role: 'tower_center' | 'photo_inspection' | 'home_nest' | 'home_flight'
+  role: 'tower_center' | 'photo_inspection' | 'drone_nest' | 'ground_station' | 'home_flight'
 }
 
 function toRow(
@@ -22,13 +29,6 @@ function toRow(
     latitude: round6(gps.latitude),
     height: Math.round(gps.altitudeM * 100) / 100
   }
-}
-
-/** 中相绝缘子挂点世界高度 Y */
-function middleArmWorldY(towerHeight: number): number {
-  const y0 = 2.4
-  const hBody = towerHeight * 0.88
-  return y0 + hBody * 0.52 - 0.28
 }
 
 /** 5 基杆塔 + 推荐巡检拍照点（lane 0） */
@@ -47,7 +47,7 @@ export function getPatrolTowerCoordinates(laneIndex = 0): TowerCoordRow[] {
       })
     )
 
-    const photoY = Math.max(middleArmWorldY(h) + 8, 36)
+    const photoY = Math.max(portalTowerMiddleArmWorldY(h) + 8, 36)
     rows.push(
       toRow({
         index: i + 1,
@@ -61,26 +61,43 @@ export function getPatrolTowerCoordinates(laneIndex = 0): TowerCoordRow[] {
   return rows
 }
 
-export function getPatrolHomeCoordinates(laneIndex = 0): TowerCoordRow[] {
-  const z = 40 + laneIndex * PATROL_LANE_Z_SPACING_M
+/** 机巢、地面站（与场景模型摆放一致） */
+export function getPatrolFacilityCoordinates(laneIndex = 0): TowerCoordRow[] {
+  const z = PATROL_NEST_HOME.z + laneIndex * PATROL_LANE_Z_SPACING_M
   return [
     toRow({
       index: 0,
-      label: '机巢（地面）',
-      scene: { x: 0, y: 3, z },
-      role: 'home_nest'
+      label: '无人机巢',
+      scene: { x: PATROL_NEST_HOME.x, y: PATROL_NEST_HOME.y, z },
+      role: 'drone_nest'
     }),
     toRow({
       index: 0,
+      label: '无人机地面站',
+      scene: { x: PATROL_GROUND_STATION.x, y: PATROL_GROUND_STATION.y, z: PATROL_GROUND_STATION.z },
+      role: 'ground_station'
+    })
+  ]
+}
+
+export function getPatrolHomeCoordinates(laneIndex = 0): TowerCoordRow[] {
+  const z = PATROL_NEST_HOME.z + laneIndex * PATROL_LANE_Z_SPACING_M
+  return [
+    toRow({
+      index: 0,
       label: '起降航点（建议）',
-      scene: { x: 0, y: 35, z },
+      scene: { x: PATROL_NEST_HOME.x, y: 35, z },
       role: 'home_flight'
     })
   ]
 }
 
 export function getPatrolReferenceTable(laneIndex = 0): TowerCoordRow[] {
-  return [...getPatrolHomeCoordinates(laneIndex), ...getPatrolTowerCoordinates(laneIndex)]
+  return [
+    ...getPatrolFacilityCoordinates(laneIndex),
+    ...getPatrolHomeCoordinates(laneIndex),
+    ...getPatrolTowerCoordinates(laneIndex)
+  ]
 }
 
 function round6(n: number) {
