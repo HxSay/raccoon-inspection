@@ -32,11 +32,11 @@ public class UavLocationHistoryController {
 
     @GetMapping("/page")
     public HxResult<Page<UavLocationHistory>> page(
-            @RequestParam(defaultValue = "1") long current,
-            @RequestParam(defaultValue = "50") long size,
-            @RequestParam Long uavId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "size", defaultValue = "50") long size,
+            @RequestParam("uavId") Long uavId,
+            @RequestParam(value = "start", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+            @RequestParam(value = "end", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end
     ) {
         return HxResult.success(uavLocationHistoryService.pageByUavAndTime(current, size, uavId, start, end));
     }

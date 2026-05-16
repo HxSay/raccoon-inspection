@@ -1,0 +1,43 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "DeviceApplication",
+      "request": "launch",
+      "mainClass": "com.raccoon.cloud.device.DeviceApplication",
+      "projectName": "raccoon-cloud-device"
+    },
+    {
+      "type": "java",
+      "name": "DroneApplication",
+      "request": "launch",
+      "mainClass": "DroneApplication",
+      "projectName": "raccoon-cloud-drone"
+    },
+    {
+      "type": "java",
+      "name": "Drone · raccoon-cloud-drone (8091)",
+      "request": "launch",
+      "mainClass": "com.raccoon.cloud.drone.DroneApplication",
+      "projectName": "raccoon-cloud-drone",
+      "cwd": "${workspaceFolder}/raccoon-cloud/raccoon-cloud-drone"
+    },
+    {
+      "type": "java",
+      "name": "IoT Data · raccoon-cloud-iot-data (8092)",
+      "request": "launch",
+      "mainClass": "com.raccoon.cloud.iotdata.IotDataApplication",
+      "projectName": "raccoon-cloud-iot-data",
+      "cwd": "${workspaceFolder}/raccoon-cloud/raccoon-cloud-iot-data"
+    },
+    {
+      "type": "java",
+      "name": "System · raccoon-cloud-system (8087)",
+      "request": "launch",
+      "mainClass": "com.raccoon.cloud.system.SystemApplication",
+      "projectName": "raccoon-cloud-system",
+      "cwd": "${workspaceFolder}/raccoon-cloud/raccoon-cloud-system"
+    }
+  ]
+}

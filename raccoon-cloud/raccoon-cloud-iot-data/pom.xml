@@ -7,9 +7,11 @@
         <groupId>com.raccoon</groupId>
         <artifactId>raccoon-cloud</artifactId>
         <version>1.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>raccoon-cloud-iot-data</artifactId>
+    <packaging>jar</packaging>
     <name>raccoon-cloud-iot-data</name>
     <description>无人机历史轨迹存储（uav_location_history）</description>
 
@@ -17,6 +19,7 @@
         <dependency>
             <groupId>com.raccoon</groupId>
             <artifactId>raccoon-common</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

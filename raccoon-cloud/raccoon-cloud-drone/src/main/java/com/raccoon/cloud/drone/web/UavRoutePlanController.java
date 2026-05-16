@@ -29,17 +29,17 @@ public class UavRoutePlanController {
     }
 
     @GetMapping("/{id}")
-    public HxResult<UavRoutePlan> getById(@PathVariable Long id) {
+    public HxResult<UavRoutePlan> getById(@PathVariable("id") Long id) {
         UavRoutePlan one = uavRoutePlanService.getById(id);
         return one == null ? HxResult.fail("记录不存在") : HxResult.success(one);
     }
 
     @GetMapping("/page")
     public HxResult<Page<UavRoutePlan>> page(
-            @RequestParam(defaultValue = "1") long current,
-            @RequestParam(defaultValue = "10") long size,
-            @RequestParam(required = false) Long uavId,
-            @RequestParam(required = false) Long taskId
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "size", defaultValue = "10") long size,
+            @RequestParam(value = "uavId", required = false) Long uavId,
+            @RequestParam(value = "taskId", required = false) Long taskId
     ) {
         LambdaQueryWrapper<UavRoutePlan> w = new LambdaQueryWrapper<>();
         w.eq(uavId != null, UavRoutePlan::getUavId, uavId);

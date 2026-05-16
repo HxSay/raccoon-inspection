@@ -1,0 +1,30 @@
+{
+  "folders": [
+    {
+      "name": "raccoon-common",
+      "path": "raccoon-common"
+    },
+    {
+      "name": "raccoon-cloud-drone",
+      "path": "raccoon-cloud/raccoon-cloud-drone"
+    }
+  ],
+  "settings": {
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.import.maven.enabled": true,
+    "java.debug.settings.console": "integratedTerminal",
+    "java.debug.settings.forceBuildBeforeLaunch": true
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "type": "java",
+        "name": "Drone (8091)",
+        "request": "launch",
+        "mainClass": "com.raccoon.cloud.drone.DroneApplication",
+        "projectName": "raccoon-cloud-drone"
+      }
+    ]
+  }
+}

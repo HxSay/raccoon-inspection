@@ -96,6 +96,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '设备维护工单', icon: 'Tools' }
       },
       {
+        path: '/drone/route-plan',
+        name: 'DroneRoutePlan',
+        component: () => import('@/views/drone/route-plan/index.vue'),
+        meta: { title: '无人机路径规划', icon: 'Position' }
+      },
+      {
         path: '/cmms/inspection/work-order/form',
         name: 'InspectionWorkOrderForm',
         component: () => import('@/views/cmms/inspection/work-order/Form.vue'),
