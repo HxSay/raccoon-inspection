@@ -47,6 +47,20 @@ spring:
           filters:
             - StripPrefix=2
 
+        - id: drone-route
+          uri: lb://raccoon-cloud-drone
+          predicates:
+            - Path=/api/drone/**
+          filters:
+            - StripPrefix=2
+
+        - id: iot-data-route
+          uri: lb://raccoon-cloud-iot-data
+          predicates:
+            - Path=/api/iot-data/**
+          filters:
+            - StripPrefix=2
+
         - id: ai-model-route
           uri: lb://raccoon-cloud-ai-model
           predicates:

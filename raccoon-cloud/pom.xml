@@ -22,6 +22,8 @@
         <module>raccoon-cloud-data</module>
         <module>raccoon-cloud-workflow</module>
         <module>raccoon-cloud-device</module>
+        <module>raccoon-cloud-drone</module>
+        <module>raccoon-cloud-iot-data</module>
         <module>raccoon-cloud-ai-model</module>
         <module>raccoon-cloud-system</module>
     </modules>
