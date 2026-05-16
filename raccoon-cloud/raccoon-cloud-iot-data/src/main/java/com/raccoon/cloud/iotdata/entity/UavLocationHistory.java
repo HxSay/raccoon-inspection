@@ -29,6 +29,9 @@ public class UavLocationHistory {
 
     private Integer locationMode;
 
+    /** 飞行状态：mission / rth / idle 等 */
+    private String flightStatus;
+
     @TableField("create_time")
     private LocalDateTime createTime;
 }

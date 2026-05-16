@@ -34,6 +34,7 @@ public class UavLocationHistoryServiceImpl extends ServiceImpl<UavLocationHistor
             h.setSpeed(item.getSpeed());
             h.setBattery(item.getBattery());
             h.setLocationMode(item.getLocationMode());
+            h.setFlightStatus(item.getFlightStatus());
             h.setCreateTime(item.getCreateTime() != null ? item.getCreateTime() : now);
             rows.add(h);
         }

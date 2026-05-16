@@ -43,8 +43,8 @@ export const PATROL_LANE_COUNT = 1
 /** 相邻走廊中心线 Z 间距（米），须与 `scene.ts` 杆塔列间隔一致 */
 export const PATROL_LANE_Z_SPACING_M = 40
 
-/** 状态上报频率：10Hz */
-export const TELEMETRY_INTERVAL_MS = 100
+/** 边缘→云端遥测上报间隔（毫秒），与 uav_location_history 入库频率一致 */
+export const TELEMETRY_INTERVAL_MS = 1000
 
 /** 部署模式：附加到云端请求的往返延迟（毫秒） */
 export const DEPLOY_EXTRA_LATENCY_MS = {

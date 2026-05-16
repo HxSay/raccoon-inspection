@@ -12,6 +12,6 @@ public interface UavRoutePlanService extends IService<UavRoutePlan> {
 
     RoutePlanView toView(UavRoutePlan plan);
 
-    /** 按无人机与巡检任务查询最新一条规划的下发 JSON */
-    UavRouteDispatchPayload getDispatchByUavAndTask(Long uavId, Long taskId);
+    /** 按无人机与路径规划 ID 查询下发 JSON */
+    UavRouteDispatchPayload getDispatchByUavAndPlan(Long uavId, Long planId);
 }

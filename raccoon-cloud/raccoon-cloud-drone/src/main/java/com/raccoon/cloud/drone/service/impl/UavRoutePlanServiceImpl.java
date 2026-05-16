@@ -94,18 +94,16 @@ public class UavRoutePlanServiceImpl extends ServiceImpl<UavRoutePlanMapper, Uav
     }
 
     @Override
-    public UavRouteDispatchPayload getDispatchByUavAndTask(Long uavId, Long taskId) {
-        if (uavId == null || taskId == null) {
-            throw new IllegalArgumentException("无人机ID和巡检任务ID不能为空");
+    public UavRouteDispatchPayload getDispatchByUavAndPlan(Long uavId, Long planId) {
+        if (uavId == null || planId == null) {
+            throw new IllegalArgumentException("无人机ID和路径规划ID不能为空");
         }
-        UavRoutePlan plan = lambdaQuery()
-                .eq(UavRoutePlan::getUavId, uavId)
-                .eq(UavRoutePlan::getTaskId, taskId)
-                .orderByDesc(UavRoutePlan::getId)
-                .last("LIMIT 1")
-                .one();
+        UavRoutePlan plan = getById(planId);
         if (plan == null) {
-            throw new IllegalArgumentException("未找到该无人机与巡检任务对应的路径规划");
+            throw new IllegalArgumentException("路径规划不存在");
+        }
+        if (!uavId.equals(plan.getUavId())) {
+            throw new IllegalArgumentException("该路径规划与指定无人机不匹配");
         }
         return UavRouteDispatchBuilder.fromPlan(plan);
     }

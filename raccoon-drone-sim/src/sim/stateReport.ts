@@ -2,8 +2,8 @@ import { TELEMETRY_INTERVAL_MS } from './constants'
 import type { TelemetryPayload } from './types'
 
 /**
- * 模拟边缘端 -> 云端 10Hz 遥测上报；断网时写入缓存队列，恢复后按序补报。
- * 不上传照片原图，仅结构化遥测（与真实边缘协议字段对齐时可扩展为同一 DTO）。
+ * 模拟边缘端 -> 云端遥测上报（默认 1Hz）；断网时写入缓存队列，恢复后按序补报。
+ * 不上传照片原图，仅结构化遥测（位置/电量/状态等，由 sink 写入 uav_location_history）。
  */
 
 type CloudSink = (p: TelemetryPayload) => void
@@ -33,7 +33,7 @@ export class StateReportService {
     return this.online
   }
 
-  /** 启动 10Hz 定时上报：每次取最后一次采样值发送（聚合边缘实际上报策略） */
+  /** 启动定时上报：每次取最后一次采样值发送（默认 1s 一条） */
   start(): void {
     if (this.timer) return
     this.timer = setInterval(() => {
@@ -50,7 +50,7 @@ export class StateReportService {
   }
 
   /**
-   * 飞控线程/主循环调用：更新最新遥测采样（10Hz 定时器会读取该快照）。
+   * 飞控主循环调用：更新最新遥测采样（定时器按 TELEMETRY_INTERVAL_MS 读取并上报）。
    */
   sample(payload: TelemetryPayload): void {
     this.lastSample = { ...payload, t: Date.now() }

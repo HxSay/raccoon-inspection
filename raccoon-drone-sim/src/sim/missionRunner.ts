@@ -22,7 +22,7 @@ import type { DeployMode } from './types'
 
 /**
  * 自主巡检全流程编排：云端拉线 -> 航点转换 -> 上传飞控 -> 自检 -> CatmullRom 沿航线飞行
- * -> 拍照点云台动作 + 本地 AI -> 10Hz 遥测 -> 任务结束自动返航（第二段 CatmullRom）。
+ * -> 拍照点云台动作 + 本地 AI -> 1Hz 遥测上报云端 -> 任务结束自动返航。
  */
 
 function estimateCurveLength(curve: THREE.CatmullRomCurve3, divisions = 512): number {
@@ -75,6 +75,8 @@ export interface MissionRunnerOptions {
   getRtkMode: () => number
   onStatus: (s: string) => void
   onTelemetry: (t: TelemetryPayload) => void
+  /** 边缘定时上报云端（1Hz，写入 uav_location_history） */
+  onCloudReport?: (t: TelemetryPayload) => void
   onPhoto: (p: PhotoCaptureMeta, ai: AiDefectResult) => void
   /** 拍照帧：用仿真相机对当前 Three 场景离屏渲染（返回 JPEG data URL） */
   captureInspectionPhoto?: () => string | null | Promise<string | null>
@@ -122,8 +124,10 @@ export class MissionRunner {
 
   constructor(opts: MissionRunnerOptions) {
     this.opts = opts
-    this.opts.stateReport.setCloudSink(() => {
+    const onCloud = opts.onCloudReport
+    this.opts.stateReport.setCloudSink((p) => {
       this.telemetrySent++
+      onCloud?.(p)
     })
   }
 

@@ -40,6 +40,9 @@ public class UavLocationBatchRequest {
         @NotNull
         private Integer locationMode;
 
+        /** 飞行状态（边缘实时状态） */
+        private String flightStatus;
+
         /** 为空则使用服务端入库时间 */
         private LocalDateTime createTime;
     }

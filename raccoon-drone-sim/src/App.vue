@@ -16,6 +16,8 @@ import { StateReportService } from '@/sim/stateReport'
 import type { DeployMode, MissionReport, TelemetryPayload } from '@/sim/types'
 import { assertWaypointLimit, fetchCloudPlannedPath, fetchThermalPlantCloudPath } from '@/sim/edgeService'
 import { fetchRouteDispatch } from '@/api/droneRoute'
+import type { UavRouteDispatchPayload } from '@/types/droneDispatch'
+import { EdgeCloudTelemetryReporter } from '@/sim/edgeCloudTelemetry'
 import { dispatchToCloudPath, dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
 import type { CloudPathPoint } from '@/sim/types'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
@@ -59,11 +61,13 @@ const batteryPercent = ref(96)
 const taskStatus = ref('待命')
 const missionJson = ref('')
 const routeFetchUavId = ref<number | undefined>(1)
-const routeFetchTaskId = ref<number | undefined>(1)
+const routeFetchPlanId = ref<number | undefined>(5)
 const routeFetchLoading = ref(false)
 const routeFetchRawJson = ref('')
 /** 从云端拉取并锚定到机巢的输电巡检航迹（有值时任务按 waypoint 直线飞行） */
 const cloudPatrolPath = shallowRef<CloudPathPoint[] | null>(null)
+/** 当前任务上下文（拉取 dispatch 后用于轨迹上报 uav_location_history） */
+const activeMissionMeta = shallowRef<Pick<UavRouteDispatchPayload, 'uavId' | 'taskId' | 'mapId'> | null>(null)
 
 const patrolTowerCoordRows = computed(() => getPatrolReferenceTable())
 
@@ -199,6 +203,7 @@ let nest: DroneNest | null = null
 let terminal: EdgeTerminal3D | null = null
 /** 每架巡逻机独立遥测通道（避免一机结束 stop 掉共享 10Hz 定时器） */
 let stateReports: StateReportService[] = []
+let edgeCloudReporters: EdgeCloudTelemetryReporter[] = []
 let missionRunners: MissionRunner[] = []
 /** 最后一架完成输电任务后关舱门 */
 let patrolNestLanded = 0
@@ -354,8 +359,23 @@ function restorePatrolCameraAfterSubstation() {
   controls.update()
 }
 
+function ensureEdgeCloudReporter(laneIndex: number): EdgeCloudTelemetryReporter {
+  const uavId = activeMissionMeta.value?.uavId ?? routeFetchUavId.value ?? 1
+  const taskId = activeMissionMeta.value?.taskId
+  const mapId = activeMissionMeta.value?.mapId
+  if (!edgeCloudReporters[laneIndex]) {
+    edgeCloudReporters[laneIndex] = new EdgeCloudTelemetryReporter({ uavId, taskId, mapId })
+  } else {
+    edgeCloudReporters[laneIndex]!.updateContext({ uavId, taskId, mapId })
+  }
+  edgeCloudReporters[laneIndex]!.setOnline(!simulateDisconnect.value)
+  return edgeCloudReporters[laneIndex]!
+}
+
 function applyNetworkSim() {
-  stateReports.forEach((s) => s.setOnline(!simulateDisconnect.value))
+  const online = !simulateDisconnect.value
+  stateReports.forEach((s) => s.setOnline(online))
+  edgeCloudReporters.forEach((r) => r?.setOnline(online))
 }
 
 function getBatteryForCheck() {
@@ -425,6 +445,9 @@ function rebuildMissionRunner() {
   missionRunners = []
   patrolFleetBuffer.value = []
   patrolNestLanded = 0
+  if (!activeMissionMeta.value && routeFetchUavId.value != null) {
+    activeMissionMeta.value = { uavId: routeFetchUavId.value }
+  }
   if (!stateReports.length) return
   if (sceneTab.value === 'patrol' && sceneBundle && patrolDrones.length) {
     const n = Math.min(patrolDrones.length, sceneBundle.corridorHomes.length)
@@ -450,6 +473,10 @@ function rebuildMissionRunner() {
           getRtkMode: getRtkForCheck,
           onStatus: i === 0 ? onStatus : () => {},
           onTelemetry: i === 0 ? onTelemetry : () => {},
+          onCloudReport: (t) => {
+            ensureEdgeCloudReporter(i).handleTelemetry(t)
+            if (i === 0) cloudReceiveCount.value++
+          },
           onPhoto: (_p, _ai) => {
             onPhoto()
           },
@@ -500,6 +527,10 @@ function rebuildMissionRunner() {
         getRtkMode: getRtkForCheck,
         onStatus,
         onTelemetry,
+        onCloudReport: (t) => {
+          ensureEdgeCloudReporter(0).handleTelemetry(t)
+          cloudReceiveCount.value++
+        },
         onPhoto: (_p, _ai) => {
           onPhoto()
         },
@@ -584,13 +615,8 @@ function initThree(): () => void {
   const { scene, world, homePosition, terminalPosition, corridorHomes, dispose: disposeScene } = sceneBundle
 
   const laneN = corridorHomes.length
-  stateReports = Array.from({ length: laneN }, (_, i) => {
-    const s = new StateReportService()
-    s.setCloudSink(() => {
-      if (i === 0) cloudReceiveCount.value++
-    })
-    return s
-  })
+  stateReports = Array.from({ length: laneN }, () => new StateReportService())
+  edgeCloudReporters = []
 
   patrolDrones = []
   for (let i = 0; i < laneN; i++) {
@@ -946,14 +972,26 @@ function clearSceneSelection() {
 }
 
 async function pullRouteAndConvert() {
-  if (routeFetchUavId.value == null || routeFetchTaskId.value == null) {
-    ElMessage.warning('请输入无人机 ID 与巡检任务 ID')
+  if (routeFetchUavId.value == null || routeFetchPlanId.value == null) {
+    ElMessage.warning('请输入无人机 ID 与路径规划 planId')
     return
   }
   routeFetchLoading.value = true
   try {
     taskStatus.value = '正在拉取智能巡检路径…'
-    const dispatch = await fetchRouteDispatch(routeFetchUavId.value, routeFetchTaskId.value)
+    const dispatch = await fetchRouteDispatch(routeFetchUavId.value, routeFetchPlanId.value)
+    activeMissionMeta.value = {
+      uavId: dispatch.uavId,
+      taskId: dispatch.taskId,
+      mapId: dispatch.mapId
+    }
+    edgeCloudReporters.forEach((r) =>
+      r?.updateContext({
+        uavId: dispatch.uavId,
+        taskId: dispatch.taskId,
+        mapId: dispatch.mapId
+      })
+    )
     routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
     const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
     missionJson.value = JSON.stringify(dji, null, 2)
@@ -1089,10 +1127,12 @@ function try65535Demo() {
           <el-descriptions-item label="相位">{{ telemetry?.phase ?? '—' }}</el-descriptions-item>
         </el-descriptions>
         <el-card shadow="never" class="ia-card">
-          <template #header>云端接收</template>
-          <p class="font-mono text-[10px] text-[var(--ia-muted)]">{{ 1000 / TELEMETRY_INTERVAL_MS }} Hz</p>
-          <p class="font-mono text-sm">COUNT <b class="text-[var(--ia-accent)]">{{ cloudReceiveCount }}</b></p>
-          <p class="font-mono text-[10px] text-amber-600/90">BUF {{ offlineBufferHint }}</p>
+          <template #header>云端轨迹入库</template>
+          <p class="font-mono text-[10px] text-[var(--ia-muted)]">
+            {{ 1000 / TELEMETRY_INTERVAL_MS }} Hz → uav_location_history
+          </p>
+          <p class="font-mono text-sm">已入库 <b class="text-[var(--ia-accent)]">{{ cloudReceiveCount }}</b> 条</p>
+          <p class="font-mono text-[10px] text-amber-600/90">边缘缓存 {{ offlineBufferHint }}</p>
         </el-card>
         <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
           <template #header>任务状态</template>
@@ -1206,8 +1246,8 @@ function try65535Demo() {
                 <el-input-number v-model="routeFetchUavId" :min="1" :controls="false" class="!w-full" size="small" />
               </div>
               <div>
-                <div class="mb-0.5 text-[10px] text-[var(--ia-muted)]">巡检任务 ID</div>
-                <el-input-number v-model="routeFetchTaskId" :min="1" :controls="false" class="!w-full" size="small" />
+                <div class="mb-0.5 text-[10px] text-[var(--ia-muted)]">路径规划 planId</div>
+                <el-input-number v-model="routeFetchPlanId" :min="1" :controls="false" class="!w-full" size="small" />
               </div>
             </div>
             <el-button

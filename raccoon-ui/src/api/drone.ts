@@ -86,8 +86,8 @@ export const droneRoutePlanPage = (params: {
   taskId?: number
 }) => request({ url: '/drone/route-plan/page', method: 'get', params })
 
-/** 按无人机 ID + 巡检任务 ID 获取最新路径规划下发 JSON */
-export const droneRoutePlanGetDispatch = (params: { uavId: number; taskId: number }) =>
+/** 按无人机 ID + 路径规划 ID（planId）获取下发 JSON */
+export const droneRoutePlanGetDispatch = (params: { uavId: number; planId: number }) =>
   request({ url: '/drone/route-plan/dispatch', method: 'get', params })
 
 export interface UavMapOption {

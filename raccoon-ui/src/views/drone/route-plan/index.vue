@@ -251,15 +251,16 @@ const testFetchDispatch = async () => {
     ElMessage.warning('请先选择无人机')
     return
   }
-  if (baseForm.taskId == null) {
-    ElMessage.warning('请先选择巡检任务')
+  const planId = lastResult.value?.id
+  if (planId == null) {
+    ElMessage.warning('请先生成并保存规划，或在「规划结果」中确认已有规划 ID')
     return
   }
   testLoading.value = true
   try {
     const res: any = await droneRoutePlanGetDispatch({
       uavId: Number(baseForm.uavId),
-      taskId: Number(baseForm.taskId)
+      planId: Number(planId)
     })
     const dispatch = res.data as UavRouteDispatchPayload
     lastDispatch.value = dispatch

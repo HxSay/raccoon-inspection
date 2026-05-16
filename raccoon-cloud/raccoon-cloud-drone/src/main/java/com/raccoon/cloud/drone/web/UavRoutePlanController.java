@@ -31,14 +31,14 @@ public class UavRoutePlanController {
     }
 
     /**
-     * 按无人机 ID + 巡检任务 ID 获取最新路径规划的下发 JSON（用于联调/测试）
+     * 按无人机 ID + 路径规划 ID（planId）获取下发 JSON（用于联调/仿真拉取）
      */
     @GetMapping("/dispatch")
-    public HxResult<UavRouteDispatchPayload> getDispatchByUavAndTask(
+    public HxResult<UavRouteDispatchPayload> getDispatchByUavAndPlan(
             @RequestParam("uavId") Long uavId,
-            @RequestParam("taskId") Long taskId
+            @RequestParam("planId") Long planId
     ) {
-        return HxResult.success(uavRoutePlanService.getDispatchByUavAndTask(uavId, taskId));
+        return HxResult.success(uavRoutePlanService.getDispatchByUavAndPlan(uavId, planId));
     }
 
     @GetMapping("/{id}")
