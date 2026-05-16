@@ -1,5 +1,6 @@
 package com.raccoon.cloud.iotdata.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -44,6 +45,7 @@ public class UavLocationBatchRequest {
         private String flightStatus;
 
         /** 为空则使用服务端入库时间 */
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
         private LocalDateTime createTime;
     }
 }

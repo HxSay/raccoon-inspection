@@ -1,5 +1,6 @@
 package com.raccoon.cloud.iotdata.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -29,8 +30,10 @@ public class UavInspectionUploadRequest {
         private Long planId;
         private Long mapId;
         @NotNull
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
         private LocalDateTime startedAt;
         @NotNull
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
         private LocalDateTime finishedAt;
         private Float distanceM;
     }
@@ -42,6 +45,7 @@ public class UavInspectionUploadRequest {
         @NotNull
         private String modalityType;
         @NotNull
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
         private LocalDateTime capturedAt;
         private BigDecimal longitude;
         private BigDecimal latitude;

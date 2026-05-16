@@ -1,3 +1,5 @@
+import { readIotApiError } from '@/api/iotHttp'
+
 /**
  * 边缘端上报无人机轨迹至 raccoon-cloud-iot-data
  */
@@ -33,7 +35,7 @@ export async function postUavLocationBatch(points: UavLocationPoint[]): Promise<
     body: JSON.stringify({ points })
   })
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+    throw new Error(await readIotApiError(res, '轨迹上报失败'))
   }
   const body = (await res.json()) as HxResult<void>
   if (body.code !== 200) {

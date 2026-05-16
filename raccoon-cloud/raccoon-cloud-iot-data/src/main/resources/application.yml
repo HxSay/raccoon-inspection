@@ -1,11 +1,13 @@
 server:
   port: 8092
+  error:
+    include-message: always
 
 spring:
   application:
     name: raccoon-cloud-iot-data
   config:
-    import: nacos:localhost:8848
+    import: optional:nacos:localhost:8848
   cloud:
     nacos:
       discovery:

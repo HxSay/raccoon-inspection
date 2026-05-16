@@ -63,7 +63,10 @@ const menuTree: MenuNode[] = [
     index: 'smart-inspection',
     title: '智能巡检',
     icon: 'Cpu',
-    children: [{ path: '/drone/route-plan', title: '无人机路径规划', icon: 'Position' }]
+    children: [
+      { path: '/drone/route-plan', title: '无人机路径规划', icon: 'Position' },
+      { path: '/drone/inspection-data', title: '巡检数据', icon: 'DataLine' }
+    ]
   }
 ]
 

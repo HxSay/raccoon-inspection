@@ -40,6 +40,16 @@ export async function uploadMultimodalMissionResult(
   return postUavInspectionMultimodal(body)
 }
 
+/** 云端仅存指标与元数据，不传输 base64 缩略图以减小请求体 */
+function sanitizePayloadForCloud(payload: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...payload }
+  if (typeof out.thumbnail === 'string') {
+    out.thumbnailChars = out.thumbnail.length
+    delete out.thumbnail
+  }
+  return out
+}
+
 function toUploadSample(s: MultimodalSample) {
   return {
     waypointIndex: s.waypointIndex,
@@ -48,6 +58,6 @@ function toUploadSample(s: MultimodalSample) {
     longitude: round6(s.gps.longitude),
     latitude: round6(s.gps.latitude),
     height: Math.round(s.gps.altitudeM * 100) / 100,
-    payload: s.payload
+    payload: sanitizePayloadForCloud(s.payload as Record<string, unknown>)
   }
 }

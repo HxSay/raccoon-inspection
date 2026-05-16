@@ -1,3 +1,4 @@
+import { readIotApiError } from '@/api/iotHttp'
 import type { MultimodalMissionContext } from '@/sim/multimodalTypes'
 
 export interface UavInspectionUploadSession extends MultimodalMissionContext {
@@ -43,7 +44,7 @@ export async function postUavInspectionMultimodal(
     body: JSON.stringify(body)
   })
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+    throw new Error(await readIotApiError(res, '多模态巡检结果上报失败'))
   }
   const json = (await res.json()) as HxResult<UavInspectionUploadResult>
   if (json.code !== 200 || !json.data) {

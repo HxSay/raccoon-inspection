@@ -32,6 +32,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/drone/, '')
       },
+      '/api/iot-data': {
+        target: 'http://localhost:8092',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/iot-data/, '')
+      },
       '/api': {
         target: 'http://localhost:8087',
         changeOrigin: true,
