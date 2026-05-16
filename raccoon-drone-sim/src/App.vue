@@ -249,7 +249,7 @@ function applyViewMode(prev?: 'aerial' | 'ground') {
       controls.target.set(PATROL_SCENE_LOOK.x, PATROL_SCENE_LOOK.y, PATROL_SCENE_LOOK.z)
     }
     controls.minDistance = 35
-    controls.maxDistance = 4200
+    controls.maxDistance = 900
     controls.minPolarAngle = 0
     controls.maxPolarAngle = Math.PI * 0.49
   }
@@ -340,7 +340,7 @@ function restorePatrolCameraAfterSubstation() {
     controls.maxPolarAngle = Math.PI * 0.499
   } else {
     controls.minDistance = 35
-    controls.maxDistance = 4200
+    controls.maxDistance = 900
     controls.minPolarAngle = 0
     controls.maxPolarAngle = Math.PI * 0.49
   }
@@ -594,7 +594,7 @@ function initThree(): () => void {
     patrolDrones.push(d)
   }
 
-  camera = new THREE.PerspectiveCamera(52, Math.max(0.01, w / h), 0.4, 8000)
+  camera = new THREE.PerspectiveCamera(52, Math.max(0.01, w / h), 0.4, 2000)
   camera.position.set(PATROL_AERIAL_CAMERA.x, PATROL_AERIAL_CAMERA.y, PATROL_AERIAL_CAMERA.z)
   camera.lookAt(PATROL_SCENE_LOOK.x, PATROL_SCENE_LOOK.y, PATROL_SCENE_LOOK.z)
 
@@ -603,7 +603,7 @@ function initThree(): () => void {
   controls.dampingFactor = 0.08
   controls.target.set(PATROL_SCENE_LOOK.x, PATROL_SCENE_LOOK.y, PATROL_SCENE_LOOK.z)
   controls.minDistance = 35
-  controls.maxDistance = 4200
+  controls.maxDistance = 900
   controls.maxPolarAngle = Math.PI * 0.49
   controls.rotateSpeed = 0.65
   controls.zoomSpeed = 0.85
