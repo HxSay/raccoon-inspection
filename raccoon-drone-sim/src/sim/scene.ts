@@ -3,6 +3,8 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { createTerrainRoughnessTexture, createGalvanizedMetalTexture, createConcreteTexture, disposeTexture } from './textures'
 import { PATROL_LANE_COUNT, PATROL_LANE_Z_SPACING_M } from './constants'
+import { PATROL_CORRIDOR_Z0, PATROL_TOWER_HEIGHTS, PATROL_TOWER_XS } from './scenePatrolLayout'
+import { createTowerCoordMarkers } from './towerCoordMarkers'
 
 /**
  * 写实风格电网巡检场景：草原式起伏地表、单/多排角钢塔与导线、物理天空与 IBL。
@@ -282,8 +284,8 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   terrain.castShadow = false
   world.add(terrain)
 
-  const heights = [58, 64, 60, 62, 59]
-  const xs = [-95, -15, 65, 145, 225]
+  const heights = [...PATROL_TOWER_HEIGHTS]
+  const xs = [...PATROL_TOWER_XS]
 
   const concMat = new THREE.MeshStandardMaterial({ map: conc, roughness: 0.92, metalness: 0.06 })
   const steel = new THREE.MeshStandardMaterial({
@@ -312,7 +314,7 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   }
   ;[concMat, steel, insMat, wireMat, spacerMat].forEach(markSkip)
 
-  const corridorZ0 = -35
+  const corridorZ0 = PATROL_CORRIDOR_Z0
   for (let lane = 0; lane < PATROL_LANE_COUNT; lane++) {
     const zRow = corridorZ0 + lane * PATROL_LANE_Z_SPACING_M
     const towerAnchors: TowerWireAnchors[] = []
@@ -355,6 +357,8 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   scene.environment = envRT.texture
   scene.background = new THREE.Color(0xb5d4ec)
 
+  const towerMarkers = createTowerCoordMarkers(world)
+
   const corridorHomes: THREE.Vector3[] = []
   for (let lane = 0; lane < PATROL_LANE_COUNT; lane++) {
     corridorHomes.push(new THREE.Vector3(0, 3, 40 + lane * PATROL_LANE_Z_SPACING_M))
@@ -365,6 +369,7 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   const textures: THREE.Texture[] = [groundRough, metal, conc]
 
   const dispose = () => {
+    towerMarkers.dispose()
     pmrem.dispose()
     envRT.dispose()
     sky.geometry.dispose()

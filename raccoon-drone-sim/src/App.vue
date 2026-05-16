@@ -19,6 +19,11 @@ import { fetchRouteDispatch } from '@/api/droneRoute'
 import { dispatchToCloudPath, dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
 import type { CloudPathPoint } from '@/sim/types'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
+import {
+  formatCoordForBackend,
+  getPatrolReferenceTable,
+  type TowerCoordRow
+} from '@/sim/towerInspectionCoords'
 import { DroneNest } from '@/sim/droneNest'
 import { EdgeTerminal3D } from '@/sim/edgeTerminal'
 import { createEdgeMetricsSimulator, type EdgeTerminalMetrics } from '@/sim/edgeMetrics'
@@ -58,6 +63,38 @@ const routeFetchLoading = ref(false)
 const routeFetchRawJson = ref('')
 /** 从云端拉取并锚定到机巢的输电巡检航迹（有值时任务按 waypoint 直线飞行） */
 const cloudPatrolPath = shallowRef<CloudPathPoint[] | null>(null)
+
+const patrolTowerCoordRows = computed(() => getPatrolReferenceTable())
+
+function roleLabel(role: TowerCoordRow['role']) {
+  if (role === 'tower_center') return '杆塔'
+  if (role === 'photo_inspection') return '拍照'
+  if (role === 'home_nest') return '机巢'
+  return '起降'
+}
+
+async function copyTowerCoord(row: TowerCoordRow) {
+  const text = formatCoordForBackend(row)
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success(`已复制：${row.label}`)
+  } catch {
+    ElMessage.warning(text)
+  }
+}
+
+async function copyAllPhotoCoords() {
+  const lines = patrolTowerCoordRows.value
+    .filter((r) => r.role === 'photo_inspection')
+    .map((r) => `${r.label}\t${formatCoordForBackend(r)}`)
+  const text = lines.join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制全部巡检拍照坐标')
+  } catch {
+    ElMessage.warning(text)
+  }
+}
 
 const telemetry = shallowRef<TelemetryPayload | null>(null)
 const cloudReceiveCount = ref(0)
@@ -1109,6 +1146,38 @@ function try65535Demo() {
         <el-card shadow="never" class="ia-card">
           <template #header>航点上限（65535）</template>
           <el-button size="small" class="!font-mono" @click="try65535Demo">触发校验</el-button>
+        </el-card>
+
+        <el-card v-if="sceneTab === 'patrol'" shadow="never" class="ia-card">
+          <template #header>
+            <div class="flex items-center justify-between gap-2">
+              <span>杆塔参考坐标（WGS84）</span>
+              <el-button type="primary" link size="small" class="!font-mono" @click="copyAllPhotoCoords">
+                复制拍照点
+              </el-button>
+            </div>
+          </template>
+          <p class="mb-2 text-[9px] leading-tight text-[var(--ia-muted)]">
+            与 3D 场景标签、<code class="text-[var(--ia-accent)]">sceneToGps</code> 一致；填入 raccoon-ui「路径规划」起降 / 途经 / 拍照点。基准约 30.5°N、104.0°E（仿真用）。
+          </p>
+          <el-table :data="patrolTowerCoordRows" size="small" stripe max-height="280" class="font-mono tower-coord-table">
+            <el-table-column prop="label" label="位置" min-width="108" show-overflow-tooltip />
+            <el-table-column label="类型" width="44">
+              <template #default="{ row }">
+                <span class="text-[9px] text-[var(--ia-accent)]">{{ roleLabel(row.role) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="longitude" label="经度" min-width="88" />
+            <el-table-column prop="latitude" label="纬度" min-width="88" />
+            <el-table-column prop="height" label="高(m)" width="52" />
+            <el-table-column label="" width="40" align="center">
+              <template #default="{ row }">
+                <el-button type="primary" link size="small" title="复制 经度,纬度,高度" @click="copyTowerCoord(row)">
+                  复制
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </el-card>
 
         <el-card shadow="never" class="ia-card">
