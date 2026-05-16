@@ -8,6 +8,7 @@ import {
   uploadMissionToAircraft
 } from './edgeService'
 import { FlightPathVisualization } from './flightPath'
+import { PolylinePath } from './polylinePath'
 import type { StateReportService } from './stateReport'
 import type {
   AiDefectResult,
@@ -83,6 +84,8 @@ export interface MissionRunnerOptions {
   visualHooks?: MissionVisualHooks
   /** 未指定时与输电场景一致，走 fetchCloudPlannedPath */
   fetchPlannedPath?: (deploy: DeployMode) => Promise<CloudPathPoint[]>
+  /** linear：逐点直线飞行（云端规划）；catmullrom：演示用平滑曲线 */
+  pathMode?: 'linear' | 'catmullrom'
   /** 地面载具返航段不大幅爬高 */
   vehicleClass?: 'uav' | 'ugv'
   djiAircraftId?: 'M300_RTK' | 'QUADRUPED_INSPECTION'
@@ -94,6 +97,7 @@ export class MissionRunner {
   private lastTs = 0
   private phase: 'idle' | 'mission' | 'rth' | 'done' = 'idle'
   private curveMission: THREE.CatmullRomCurve3 | null = null
+  private polylineMission: PolylinePath | null = null
   private curveRth: THREE.CatmullRomCurve3 | null = null
   private lenMission = 1
   private lenRth = 1
@@ -174,8 +178,10 @@ export class MissionRunner {
       const pathFetcher = this.opts.fetchPlannedPath ?? fetchCloudPlannedPath
       this.missionPath = await pathFetcher(deploy)
 
+      const linear = this.opts.pathMode === 'linear'
+
       this.clearPathViz()
-      this.pathViz = new FlightPathVisualization(this.missionPath)
+      this.pathViz = new FlightPathVisualization(this.missionPath, 4096, linear)
       this.opts.pathWorld.add(this.pathViz.group)
 
       this.opts.onStatus('正在转换为大疆 Waypoint 任务…')
@@ -193,28 +199,45 @@ export class MissionRunner {
       this.opts.visualHooks?.onPreflightPassed?.()
 
       const pts = this.missionPath.map((p) => new THREE.Vector3(p.x, p.y, p.z))
-      this.curveMission = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.4)
-      this.lenMission = Math.max(1, estimateCurveLength(this.curveMission))
-
-      this.photoTriggers = this.missionPath
-        .map((p, i) => {
-          if (!p.isPhoto) return null
-          const u = findClosestU(this.curveMission!, new THREE.Vector3(p.x, p.y, p.z))
-          const next = this.missionPath[i + 1]
-          const yawDeg = next
-            ? (Math.atan2(next.x - p.x, next.z - p.z) * 180) / Math.PI
-            : (Math.atan2(p.x, p.z) * 180) / Math.PI
-          return { u, wpIndex: i, yawDeg }
-        })
-        .filter((x): x is { u: number; wpIndex: number; yawDeg: number } => x != null)
-        .sort((a, b) => a.u - b.u)
+      if (linear) {
+        this.polylineMission = new PolylinePath(pts)
+        this.curveMission = null
+        this.lenMission = this.polylineMission.totalLength
+        this.photoTriggers = this.missionPath
+          .map((p, i) => {
+            if (!p.isPhoto) return null
+            const next = this.missionPath[i + 1]
+            const yawDeg = next
+              ? (Math.atan2(next.x - p.x, next.z - p.z) * 180) / Math.PI
+              : (Math.atan2(p.x, p.z) * 180) / Math.PI
+            return { u: this.polylineMission!.getUAtIndex(i), wpIndex: i, yawDeg }
+          })
+          .filter((x): x is { u: number; wpIndex: number; yawDeg: number } => x != null)
+          .sort((a, b) => a.u - b.u)
+      } else {
+        this.polylineMission = null
+        this.curveMission = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.4)
+        this.lenMission = Math.max(1, estimateCurveLength(this.curveMission))
+        this.photoTriggers = this.missionPath
+          .map((p, i) => {
+            if (!p.isPhoto) return null
+            const u = findClosestU(this.curveMission!, new THREE.Vector3(p.x, p.y, p.z))
+            const next = this.missionPath[i + 1]
+            const yawDeg = next
+              ? (Math.atan2(next.x - p.x, next.z - p.z) * 180) / Math.PI
+              : (Math.atan2(p.x, p.z) * 180) / Math.PI
+            return { u, wpIndex: i, yawDeg }
+          })
+          .filter((x): x is { u: number; wpIndex: number; yawDeg: number } => x != null)
+          .sort((a, b) => a.u - b.u)
+      }
 
       this.opts.stateReport.start()
       this.phase = 'mission'
       this.takeoffBlend = 0
       this.firstFlightFrame = true
       this.opts.agent.setRotorRunning(true)
-      this.opts.onStatus('自主巡检中（CatmullRom 平滑航线）')
+      this.opts.onStatus(linear ? '自主巡检中（按 Waypoint 逐点直线飞行）' : '自主巡检中（CatmullRom 平滑航线）')
       this.lastPos.copy(this.opts.home)
       this.lastTs = performance.now()
       this.rafId = requestAnimationFrame(this.loop)
@@ -250,16 +273,25 @@ export class MissionRunner {
       return
     }
 
-    const curve = this.phase === 'mission' ? this.curveMission! : this.curveRth!
     const len = this.phase === 'mission' ? this.lenMission : this.lenRth
 
-    let pos = curve.getPointAt(Math.min(1, this.u))
-    let tan = curve.getTangentAt(Math.min(1, this.u))
+    let pos: THREE.Vector3
+    let tan: THREE.Vector3
+    if (this.phase === 'mission' && this.polylineMission) {
+      pos = this.polylineMission.getPointAt(Math.min(1, this.u))
+      tan = this.polylineMission.getTangentAt(Math.min(1, this.u))
+    } else {
+      const curve = this.phase === 'mission' ? this.curveMission! : this.curveRth!
+      pos = curve.getPointAt(Math.min(1, this.u))
+      tan = curve.getTangentAt(Math.min(1, this.u))
+    }
 
     if (this.phase === 'mission' && this.takeoffBlend < 1 && !this.paused && !this.capturing) {
       this.takeoffBlend = Math.min(1, this.takeoffBlend + dt * 0.72)
       const tb = THREE.MathUtils.smoothstep(this.takeoffBlend, 0, 1)
-      const curvePos = curve.getPointAt(Math.min(1, this.u))
+      const curvePos =
+        this.polylineMission?.getPointAt(Math.min(1, this.u)) ??
+        this.curveMission!.getPointAt(Math.min(1, this.u))
       pos = new THREE.Vector3().lerpVectors(this.opts.home, curvePos, tb)
       const toCurve = curvePos.clone().sub(this.opts.home)
       if (toCurve.lengthSq() > 1e-6) toCurve.normalize()
@@ -303,9 +335,13 @@ export class MissionRunner {
       if (this.flown.length > 600) this.flown.shift()
     }
 
-    if (this.pathViz && this.curveMission) {
+    if (this.pathViz) {
       const uDisp = this.phase === 'mission' ? this.u : 1
-      this.pathViz.updateProgress(this.flown, this.curveMission, uDisp)
+      if (this.phase === 'mission' && this.polylineMission) {
+        this.pathViz.updateProgressLinear(this.flown, this.polylineMission, uDisp)
+      } else if (this.curveMission) {
+        this.pathViz.updateProgress(this.flown, this.curveMission, uDisp)
+      }
     }
 
     const progress = this.phase === 'mission' ? this.u * 0.85 : 0.85 + this.u * 0.15
@@ -375,7 +411,9 @@ export class MissionRunner {
         this.aiResults.push(ai)
         this.opts.onPhoto(meta, ai)
         this.capturing = false
-        this.opts.onStatus('自主巡检中（CatmullRom 平滑航线）')
+        this.opts.onStatus(
+          this.polylineMission ? '自主巡检中（按 Waypoint 逐点直线飞行）' : '自主巡检中（CatmullRom 平滑航线）'
+        )
         break
       }
     }

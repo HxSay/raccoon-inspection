@@ -22,12 +22,19 @@ function cloneGeo(p: GeoPoint): GeoPoint {
   }
 }
 
-function geoToScene(geo: GeoPoint, origin: GeoPoint): { x: number; y: number; z: number } {
+/** 相对起飞点的场景偏移（米） */
+function geoOffsetMeters(geo: GeoPoint, origin: GeoPoint): { x: number; y: number; z: number } {
   return {
     x: (geo.latitude - origin.latitude) / SCENE_TO_LAT_LON.latPerMeter,
     z: (geo.longitude - origin.longitude) / SCENE_TO_LAT_LON.lonPerMeter,
-    y: geo.height
+    y: geo.height - origin.height
   }
+}
+
+export interface SceneAnchor {
+  x: number
+  y: number
+  z: number
 }
 
 function isSameGeo(a: GeoPoint, b: GeoPoint): boolean {
@@ -118,24 +125,31 @@ function photoDeviceIdsAtPathIndex(
 /**
  * 将后台下发 JSON 转为仿真场景航点（经纬度与 dispatch.waypoints 一致）
  */
-export function dispatchToCloudPath(dispatch: UavRouteDispatchPayload): CloudPathPoint[] {
+/**
+ * 转为仿真场景航点：第一个航点落在 sceneAnchor（机巢），其余按经纬度相对偏移展开。
+ */
+export function dispatchToCloudPath(
+  dispatch: UavRouteDispatchPayload,
+  sceneAnchor?: SceneAnchor
+): CloudPathPoint[] {
   const flightPath = resolveDispatchFlightPath(dispatch)
   if (flightPath.length === 0) {
     throw new Error('路径规划中无有效飞行点')
   }
 
-  const origin = flightPath[0]
+  const originGeo = flightPath[0]
+  const anchor = sceneAnchor ?? { x: 0, y: originGeo.height, z: 0 }
 
   return flightPath.map((wp, i) => {
-    const scene = geoToScene(wp, origin)
+    const off = geoOffsetMeters(wp, originGeo)
     return {
       id: `wp-${i}`,
       longitude: wp.longitude,
       latitude: wp.latitude,
       height: wp.height,
-      x: scene.x,
-      y: scene.y,
-      z: scene.z,
+      x: anchor.x + off.x,
+      y: anchor.y + off.y,
+      z: anchor.z + off.z,
       isPhoto: isPhotoAtPathIndex(i, wp, flightPath, dispatch)
     }
   })
@@ -183,8 +197,6 @@ export function dispatchToDjiWaypointMission(
 
   assertWaypointLimit(flightPath.length)
 
-  const origin = flightPath[0]
-
   const waypoints: DjiWaypoint[] = flightPath.map((wp, i) => {
     const next = flightPath[i + 1]
     const isPhoto = isPhotoAtPathIndex(i, wp, flightPath, dispatch)
@@ -195,7 +207,8 @@ export function dispatchToDjiWaypointMission(
       actions.push({ type: 'GIMBAL_ROTATE', gimbalPitchDeg: PHOTO_GIMBAL_PITCH_DEG, gimbalYawDeg: yaw })
       actions.push({ type: 'TAKE_PHOTO' })
     }
-    const scene = geoToScene(wp, origin)
+    const off = geoOffsetMeters(wp, flightPath[0])
+    const anchor = { x: 0, y: 0, z: 0 }
     return {
       index: i,
       longitude: wp.longitude,
@@ -204,7 +217,7 @@ export function dispatchToDjiWaypointMission(
       speedMps: isPhoto ? INSPECTION_POINT_SPEED : AUTO_FLIGHT_SPEED,
       actions,
       deviceIds: deviceIds.length ? deviceIds : undefined,
-      scenePosition: { x: scene.x, y: scene.y, z: scene.z }
+      scenePosition: { x: anchor.x + off.x, y: anchor.y + off.y, z: anchor.z + off.z }
     }
   })
 

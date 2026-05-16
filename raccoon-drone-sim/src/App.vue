@@ -16,7 +16,8 @@ import { StateReportService } from '@/sim/stateReport'
 import type { DeployMode, MissionReport, TelemetryPayload } from '@/sim/types'
 import { assertWaypointLimit, fetchCloudPlannedPath, fetchThermalPlantCloudPath } from '@/sim/edgeService'
 import { fetchRouteDispatch } from '@/api/droneRoute'
-import { dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
+import { dispatchToCloudPath, dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
+import type { CloudPathPoint } from '@/sim/types'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
 import { DroneNest } from '@/sim/droneNest'
 import { EdgeTerminal3D } from '@/sim/edgeTerminal'
@@ -55,6 +56,8 @@ const routeFetchUavId = ref<number | undefined>(1)
 const routeFetchTaskId = ref<number | undefined>(1)
 const routeFetchLoading = ref(false)
 const routeFetchRawJson = ref('')
+/** 从云端拉取并锚定到机巢的输电巡检航迹（有值时任务按 waypoint 直线飞行） */
+const cloudPatrolPath = shallowRef<CloudPathPoint[] | null>(null)
 
 const telemetry = shallowRef<TelemetryPayload | null>(null)
 const cloudReceiveCount = ref(0)
@@ -406,7 +409,13 @@ function rebuildMissionRunner() {
           },
           onComplete: onPatrolFleetComplete,
           onError,
-          fetchPlannedPath: (dep) => fetchCloudPlannedPath(dep, i),
+          fetchPlannedPath: async (dep) => {
+            if (cloudPatrolPath.value?.length) {
+              return cloudPatrolPath.value.map((p) => ({ ...p }))
+            }
+            return fetchCloudPlannedPath(dep, i)
+          },
+          pathMode: cloudPatrolPath.value?.length ? 'linear' : 'catmullrom',
           visualHooks: {
             onPreflightPassed: () => {
               if (i === 0) nest?.setDoorTarget(1)
@@ -759,6 +768,9 @@ async function startMission() {
     ElMessage.warning('当前场景不支持任务仿真（请切换到输电巡检或火电站）')
     return
   }
+  if (!cloudPatrolPath.value?.length) {
+    ElMessage.info('未加载云端路径，将使用内置演示航线（平滑曲线）')
+  }
   applyNetworkSim()
   cloudReceiveCount.value = 0
   await Promise.all(missionRunners.map((m) => m.start()))
@@ -899,10 +911,16 @@ async function pullRouteAndConvert() {
     routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
     const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
     missionJson.value = JSON.stringify(dji, null, 2)
+    const home = sceneBundle?.corridorHomes[0]
+    cloudPatrolPath.value = dispatchToCloudPath(
+      dispatch,
+      home ? { x: home.x, y: home.y, z: home.z } : undefined
+    )
+    rebuildMissionRunner()
     const n = dji.waypoints.length
     const src = dispatch.waypoints?.length ?? 0
-    taskStatus.value = `已转换 ${n} 个航点（与后台 waypoints ${src} 个逐点对齐）`
-    ElMessage.success(`Waypoint 已与后台 ${n} 个飞行点对齐`)
+    taskStatus.value = `已加载 ${n} 个航点，请点击「开始任务」按 waypoint 飞行`
+    ElMessage.success(`已对齐后台 ${src} 个飞行点，预览线为折线（非平滑曲线）`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     taskStatus.value = `拉取失败: ${msg}`
@@ -1118,7 +1136,7 @@ function try65535Demo() {
             <p class="text-[9px] leading-tight text-[var(--ia-muted)]">
               调用
               <code class="text-[var(--ia-accent)]">GET /route-plan/dispatch</code>
-              （代理至 8091）。waypoints 与后台 waypoints 同序同坐标；scenePosition 仅仿真用，请勿与经纬度对照。
+              （代理至 8091）。拉取后点「开始任务」将按折线逐点飞行；未拉取则用内置演示航线（平滑曲线）。
             </p>
           </div>
         </el-card>

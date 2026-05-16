@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { CloudPathPoint } from './types'
+import type { PolylinePath } from './polylinePath'
 
 /**
  * 航点标记、拍照点高亮、已完成/未完成轨迹颜色区分。
@@ -19,7 +20,7 @@ export class FlightPathVisualization {
   private todoGeom: THREE.BufferGeometry
   private maxPoints: number
 
-  constructor(points: CloudPathPoint[], maxSegments = 4096) {
+  constructor(points: CloudPathPoint[], maxSegments = 4096, useLinearPreview = false) {
     this.group = new THREE.Group()
     this.group.userData.noScenePick = true
     this.maxPoints = maxSegments
@@ -51,8 +52,11 @@ export class FlightPathVisualization {
     }
 
     const positions = points.map((p) => new THREE.Vector3(p.x, p.y, p.z))
-    const curve = new THREE.CatmullRomCurve3(positions, false, 'catmullrom', 0.35)
-    const pts = curve.getPoints(Math.min(400, maxSegments))
+    const pts = useLinearPreview
+      ? positions
+      : new THREE.CatmullRomCurve3(positions, false, 'catmullrom', 0.35).getPoints(
+          Math.min(400, maxSegments)
+        )
     const arr = new Float32Array(pts.length * 3)
     for (let i = 0; i < pts.length; i++) {
       arr[i * 3] = pts[i].x
@@ -102,6 +106,28 @@ export class FlightPathVisualization {
     for (let i = 0; i <= restPts && k < this.maxPoints; i++) {
       const u = uCurrent + (1 - uCurrent) * (i / restPts)
       const p = curveFull.getPointAt(Math.min(1, Math.max(0, u)))
+      todoAttr.setXYZ(k++, p.x, p.y, p.z)
+    }
+    this.todoGeom.setDrawRange(0, k)
+    doneAttr.needsUpdate = true
+    todoAttr.needsUpdate = true
+  }
+
+  /** 折线航迹进度（与 MissionRunner 直线飞行一致） */
+  updateProgressLinear(flown: THREE.Vector3[], polyline: PolylinePath, uCurrent: number): void {
+    const doneAttr = this.doneGeom.getAttribute('position') as THREE.BufferAttribute
+    const nDone = Math.min(flown.length, this.maxPoints)
+    for (let i = 0; i < nDone; i++) {
+      doneAttr.setXYZ(i, flown[i].x, flown[i].y, flown[i].z)
+    }
+    this.doneGeom.setDrawRange(0, nDone)
+
+    const todoAttr = this.todoGeom.getAttribute('position') as THREE.BufferAttribute
+    let k = 0
+    const restPts = 120
+    for (let i = 0; i <= restPts && k < this.maxPoints; i++) {
+      const u = uCurrent + (1 - uCurrent) * (i / restPts)
+      const p = polyline.getPointAt(Math.min(1, Math.max(0, u)))
       todoAttr.setXYZ(k++, p.x, p.y, p.z)
     }
     this.todoGeom.setDrawRange(0, k)
