@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `uav_route_plan` (
   `estimated_battery` FLOAT NOT NULL COMMENT '预计消耗电量（%）',
   `algorithm` VARCHAR(20) NOT NULL COMMENT '使用的算法：A*, RRT*',
   `path_points` TEXT NOT NULL COMMENT '路径点列表（JSON数组，经纬度,高度）',
-  `photo_points` TEXT NOT NULL COMMENT '拍照航点列表（JSON数组）',
+  `photo_points` TEXT NOT NULL COMMENT '拍照航点列表（JSON数组，含 deviceIds 绑定设备）',
   `visit_order` TEXT NOT NULL COMMENT '巡检点访问顺序（JSON数组，设备ID）',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (`id`),

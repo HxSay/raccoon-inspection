@@ -3,6 +3,7 @@ package com.raccoon.cloud.drone.util;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raccoon.cloud.drone.dto.GeoPoint;
+import com.raccoon.cloud.drone.dto.PhotoWaypoint;
 import com.raccoon.cloud.drone.dto.UavRouteDispatchPayload;
 import com.raccoon.cloud.drone.entity.UavRoutePlan;
 
@@ -28,8 +29,14 @@ public final class UavRouteDispatchBuilder {
         payload.setTakeoff(path.isEmpty() ? parsePoint(plan.getStartPoint()) : path.get(0));
         payload.setLanding(path.isEmpty() ? parsePoint(plan.getEndPoint()) : path.get(path.size() - 1));
         payload.setWaypoints(path);
-        payload.setPhotoWaypoints(parseList(plan.getPhotoPoints(), new TypeReference<List<GeoPoint>>() {}));
-        payload.setDeviceVisitOrder(parseList(plan.getVisitOrder(), new TypeReference<List<Long>>() {}));
+        List<PhotoWaypoint> photoWaypoints =
+                parseList(plan.getPhotoPoints(), new TypeReference<List<PhotoWaypoint>>() {});
+        payload.setPhotoWaypoints(photoWaypoints);
+        if (PhotoWaypointUtils.hasBoundDevices(photoWaypoints)) {
+            payload.setDeviceVisitOrder(PhotoWaypointUtils.flattenDeviceVisitOrder(photoWaypoints));
+        } else {
+            payload.setDeviceVisitOrder(parseList(plan.getVisitOrder(), new TypeReference<List<Long>>() {}));
+        }
 
         UavRouteDispatchPayload.Estimated est = new UavRouteDispatchPayload.Estimated();
         est.setDistanceM(plan.getTotalDistance());

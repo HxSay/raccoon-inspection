@@ -6,6 +6,11 @@ export interface GeoPoint {
   height: number
 }
 
+/** 拍照航点：坐标 + 绑定的巡检设备（可多选） */
+export interface PhotoWaypoint extends GeoPoint {
+  deviceIds?: number[]
+}
+
 export interface RoutePlanCreateRequest {
   taskId?: number
   mapId: number
@@ -13,7 +18,8 @@ export interface RoutePlanCreateRequest {
   startPoint: string
   endPoint: string
   pathPoints?: GeoPoint[]
-  photoPoints?: GeoPoint[]
+  photoPoints?: PhotoWaypoint[]
+  /** 兼容旧版；新数据以 photoPoints[].deviceIds 为准 */
   visitOrder?: number[]
   algorithm: string
 }
@@ -44,7 +50,7 @@ export interface UavRouteDispatchPayload {
   takeoff?: GeoPoint
   landing?: GeoPoint
   waypoints: GeoPoint[]
-  photoWaypoints: GeoPoint[]
+  photoWaypoints: PhotoWaypoint[]
   deviceVisitOrder: number[]
   estimated?: {
     distanceM: number

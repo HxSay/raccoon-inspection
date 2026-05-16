@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.raccoon.cloud.drone.dto.GeoPoint;
+import com.raccoon.cloud.drone.dto.PhotoWaypoint;
 import com.raccoon.cloud.drone.dto.RoutePlanCreateRequest;
 import com.raccoon.cloud.drone.dto.RoutePlanView;
 import com.raccoon.cloud.drone.entity.UavRoutePlan;
@@ -11,6 +12,7 @@ import com.raccoon.cloud.drone.util.UavRouteDispatchBuilder;
 import com.raccoon.cloud.drone.mapper.UavRoutePlanMapper;
 import com.raccoon.cloud.drone.service.UavRoutePlanService;
 import com.raccoon.cloud.drone.util.GeoPathUtils;
+import com.raccoon.cloud.drone.util.PhotoWaypointUtils;
 import com.raccoon.cloud.drone.util.PointStringParser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -63,12 +65,16 @@ public class UavRoutePlanServiceImpl extends ServiceImpl<UavRoutePlanMapper, Uav
         row.setEstimatedTime(estSeconds);
         row.setEstimatedBattery(estBattery);
         row.setAlgorithm(algorithm);
+        List<PhotoWaypoint> photos =
+                request.getPhotoPoints() == null ? Collections.emptyList() : request.getPhotoPoints();
+        List<Long> visitOrder = PhotoWaypointUtils.hasBoundDevices(photos)
+                ? PhotoWaypointUtils.flattenDeviceVisitOrder(photos)
+                : (request.getVisitOrder() == null ? Collections.emptyList() : request.getVisitOrder());
+
         try {
             row.setPathPoints(objectMapper.writeValueAsString(path));
-            row.setPhotoPoints(objectMapper.writeValueAsString(
-                    request.getPhotoPoints() == null ? Collections.emptyList() : request.getPhotoPoints()));
-            row.setVisitOrder(objectMapper.writeValueAsString(
-                    request.getVisitOrder() == null ? Collections.emptyList() : request.getVisitOrder()));
+            row.setPhotoPoints(objectMapper.writeValueAsString(photos));
+            row.setVisitOrder(objectMapper.writeValueAsString(visitOrder));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("序列化 JSON 失败", e);
         }

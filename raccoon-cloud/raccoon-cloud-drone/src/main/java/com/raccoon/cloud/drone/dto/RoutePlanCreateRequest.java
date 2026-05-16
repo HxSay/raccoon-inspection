@@ -29,10 +29,12 @@ public class RoutePlanCreateRequest {
      */
     private List<GeoPoint> pathPoints;
 
-    /** 拍照航点，可为空数组 */
-    private List<GeoPoint> photoPoints;
+    /** 拍照航点（含绑定设备），可为空数组 */
+    private List<PhotoWaypoint> photoPoints;
 
-    /** 巡检设备访问顺序（设备 ID），可为空数组 */
+    /**
+     * 兼容旧版：全局设备访问顺序。若拍照航点已绑定设备，以航点绑定为准。
+     */
     private List<Long> visitOrder;
 
     /** A*、RRT* 等，与表 algorithm 字段一致 */

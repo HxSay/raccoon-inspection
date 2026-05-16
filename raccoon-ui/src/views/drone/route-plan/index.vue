@@ -9,6 +9,7 @@ import {
   droneMapOptions,
   droneUavOptions,
   type GeoPoint,
+  type PhotoWaypoint,
   type UavRoutePlan,
   type RoutePlanCreateRequest,
   type RoutePlanView,
@@ -25,10 +26,19 @@ const algorithmOptions = [
   { label: 'RRT*', value: 'RRT*' }
 ]
 
+interface PhotoPointRow extends PointTriple {
+  deviceIds: number[]
+}
+
 const emptyPoint = (): PointTriple => ({
   longitude: undefined,
   latitude: undefined,
   height: 50
+})
+
+const emptyPhotoPoint = (): PhotoPointRow => ({
+  ...emptyPoint(),
+  deviceIds: []
 })
 
 const formRef = ref<FormInstance>()
@@ -44,9 +54,7 @@ const baseForm = reactive({
 const start = ref<PointTriple>({ longitude: 116.397428, latitude: 39.90923, height: 50 })
 const end = ref<PointTriple>({ longitude: 116.407428, latitude: 39.91923, height: 50 })
 const waypoints = ref<PointTriple[]>([])
-const photoPoints = ref<PointTriple[]>([])
-const visitOrder = ref<number[]>([])
-const visitDeviceInput = ref<number | undefined>()
+const photoPoints = ref<PhotoPointRow[]>([])
 
 const mapOptions = ref<UavMapOption[]>([])
 const uavOptions = ref<UavInfoOption[]>([])
@@ -161,25 +169,20 @@ const moveWaypoint = (i: number, dir: -1 | 1) => {
   waypoints.value[j] = t
 }
 
-const addPhotoPoint = () => photoPoints.value.push(emptyPoint())
+const addPhotoPoint = () => photoPoints.value.push(emptyPhotoPoint())
 const removePhotoPoint = (i: number) => photoPoints.value.splice(i, 1)
 
-const addVisitDevice = () => {
-  if (visitDeviceInput.value == null) {
-    ElMessage.warning('请选择巡检设备')
-    return
+function toPhotoWaypoint(p: PhotoPointRow): PhotoWaypoint {
+  return {
+    longitude: Number(p.longitude),
+    latitude: Number(p.latitude),
+    height: Number(p.height),
+    deviceIds: p.deviceIds?.length ? [...p.deviceIds] : []
   }
-  if (visitOrder.value.includes(visitDeviceInput.value)) {
-    ElMessage.warning('该设备 ID 已添加')
-    return
-  }
-  visitOrder.value.push(visitDeviceInput.value)
-  visitDeviceInput.value = undefined
 }
 
-const removeVisitDevice = (id: number) => {
-  visitOrder.value = visitOrder.value.filter((x) => x !== id)
-}
+const flattenVisitOrder = (photos: PhotoWaypoint[]) =>
+  photos.flatMap((wp) => wp.deviceIds ?? []).filter((id) => id != null)
 
 const resetPlanForm = () => {
   baseForm.taskId = undefined
@@ -190,8 +193,6 @@ const resetPlanForm = () => {
   end.value = { longitude: 116.407428, latitude: 39.91923, height: 50 }
   waypoints.value = []
   photoPoints.value = []
-  visitOrder.value = []
-  visitDeviceInput.value = undefined
   formRef.value?.clearValidate()
 }
 
@@ -206,7 +207,7 @@ const submitPlan = async () => {
     return
   }
 
-  const photos = photoPoints.value.filter(isPointComplete).map(toGeoPoint)
+  const photos = photoPoints.value.filter(isPointComplete).map(toPhotoWaypoint)
   const payload: RoutePlanCreateRequest = {
     taskId: baseForm.taskId,
     mapId: Number(baseForm.mapId),
@@ -215,7 +216,6 @@ const submitPlan = async () => {
     endPoint: formatPoint(end.value),
     pathPoints: buildPathPoints(),
     photoPoints: photos.length ? photos : [],
-    visitOrder: visitOrder.value.length ? [...visitOrder.value] : [],
     algorithm: baseForm.algorithm
   }
 
@@ -291,7 +291,7 @@ const detailVisible = ref(false)
 const detailRow = ref<UavRoutePlan | null>(null)
 const detailParsed = ref<{
   pathPoints: GeoPoint[]
-  photoPoints: GeoPoint[]
+  photoPoints: PhotoWaypoint[]
   visitOrder: number[]
 }>({ pathPoints: [], photoPoints: [], visitOrder: [] })
 const detailDispatch = ref<UavRouteDispatchPayload | null>(null)
@@ -305,6 +305,8 @@ const buildDispatchFromPlan = (plan: UavRoutePlan): UavRouteDispatchPayload => {
   const path = parseJson<GeoPoint[]>(plan.pathPoints, [])
   const takeoff = path[0] ?? parsePointString(plan.startPoint)
   const landing = path.length ? path[path.length - 1] : parsePointString(plan.endPoint)
+  const photoWaypoints = normalizePhotoWaypoints(parseJson(plan.photoPoints, []))
+  const legacyOrder = parseJson<number[]>(plan.visitOrder, [])
   return {
     planId: plan.id,
     taskId: plan.taskId,
@@ -314,8 +316,8 @@ const buildDispatchFromPlan = (plan: UavRoutePlan): UavRouteDispatchPayload => {
     takeoff,
     landing,
     waypoints: path,
-    photoWaypoints: parseJson(plan.photoPoints, []),
-    deviceVisitOrder: parseJson(plan.visitOrder, []),
+    photoWaypoints,
+    deviceVisitOrder: resolveVisitOrder(photoWaypoints, legacyOrder),
     estimated: {
       distanceM: plan.totalDistance,
       durationSec: plan.estimatedTime,
@@ -339,6 +341,19 @@ const parseJson = <T,>(raw: string | undefined, fallback: T): T => {
   }
 }
 
+const normalizePhotoWaypoints = (raw: PhotoWaypoint[] | GeoPoint[]): PhotoWaypoint[] =>
+  raw.map((p) => ({
+    longitude: p.longitude,
+    latitude: p.latitude,
+    height: p.height,
+    deviceIds: 'deviceIds' in p && Array.isArray(p.deviceIds) ? p.deviceIds : []
+  }))
+
+const resolveVisitOrder = (photos: PhotoWaypoint[], legacyOrder: number[]) => {
+  const fromPhotos = flattenVisitOrder(photos)
+  return fromPhotos.length ? fromPhotos : legacyOrder
+}
+
 const openDetail = async (row: UavRoutePlan) => {
   if (row.id == null) return
   try {
@@ -355,10 +370,12 @@ const openDetail = async (row: UavRoutePlan) => {
     detailRow.value = row
     detailDispatch.value = buildDispatchFromPlan(row)
   }
+  const photos = normalizePhotoWaypoints(parseJson(detailRow.value?.photoPoints, []))
+  const legacyOrder = parseJson<number[]>(detailRow.value?.visitOrder, [])
   detailParsed.value = {
     pathPoints: parseJson(detailRow.value?.pathPoints, []),
-    photoPoints: parseJson(detailRow.value?.photoPoints, []),
-    visitOrder: parseJson(detailRow.value?.visitOrder, [])
+    photoPoints: photos,
+    visitOrder: resolveVisitOrder(photos, legacyOrder)
   }
   detailVisible.value = true
 }
@@ -523,7 +540,10 @@ onMounted(async () => {
           </el-table>
           <el-empty v-else description="暂无途经航点" :image-size="64" />
 
-          <el-divider content-position="left">拍照航点</el-divider>
+          <el-divider content-position="left">
+            拍照航点
+            <el-text type="info" size="small" style="margin-left: 8px">每个拍照点可绑定多个巡检设备</el-text>
+          </el-divider>
           <div class="table-toolbar">
             <el-button type="primary" plain size="small" @click="addPhotoPoint">添加拍照点</el-button>
           </div>
@@ -551,9 +571,29 @@ onMounted(async () => {
                 />
               </template>
             </el-table-column>
-            <el-table-column label="高度(m)" width="120">
+            <el-table-column label="高度(m)" width="100">
               <template #default="{ row }">
                 <el-input-number v-model="row.height" :min="0" :step="1" controls-position="right" class="w-full" />
+              </template>
+            </el-table-column>
+            <el-table-column label="绑定巡检设备" min-width="260">
+              <template #default="{ row }">
+                <el-select
+                  v-model="row.deviceIds"
+                  multiple
+                  filterable
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="选择设备（可多选）"
+                  class="w-full"
+                >
+                  <el-option
+                    v-for="d in deviceOptions"
+                    :key="d.id"
+                    :label="`${d.deviceName}${d.deviceCode ? ' · ' + d.deviceCode : ''} (ID:${d.id})`"
+                    :value="d.id!"
+                  />
+                </el-select>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="80" fixed="right">
@@ -563,37 +603,6 @@ onMounted(async () => {
             </el-table-column>
           </el-table>
           <el-empty v-else description="暂无拍照航点" :image-size="64" />
-
-          <el-divider content-position="left">巡检设备访问顺序</el-divider>
-          <div class="visit-row">
-            <el-select
-              v-model="visitDeviceInput"
-              filterable
-              clearable
-              placeholder="选择巡检设备"
-              style="width: min(100%, 360px)"
-            >
-              <el-option
-                v-for="d in deviceOptions"
-                :key="d.id"
-                :label="`${d.deviceName}${d.deviceCode ? ' · ' + d.deviceCode : ''} (ID:${d.id})`"
-                :value="d.id!"
-                :disabled="visitOrder.includes(d.id!)"
-              />
-            </el-select>
-            <el-button type="primary" plain @click="addVisitDevice">加入顺序</el-button>
-          </div>
-          <div v-if="visitOrder.length" class="visit-tags">
-            <el-tag
-              v-for="(id, idx) in visitOrder"
-              :key="id"
-              closable
-              type="info"
-              @close="removeVisitDevice(id)"
-            >
-              {{ idx + 1 }}. {{ deviceLabel(id) }}
-            </el-tag>
-          </div>
 
           <div class="form-actions">
             <el-button type="primary" :loading="submitting" @click="submitPlan">生成并保存规划</el-button>
@@ -728,18 +737,25 @@ onMounted(async () => {
           <el-table-column prop="height" label="高度(m)" />
         </el-table>
 
-        <el-divider content-position="left">拍照航点</el-divider>
-        <el-table :data="detailParsed.photoPoints" border size="small" max-height="160">
+        <el-divider content-position="left">拍照航点（含绑定设备）</el-divider>
+        <el-table :data="detailParsed.photoPoints" border size="small" max-height="200">
           <el-table-column type="index" label="#" width="50" />
           <el-table-column prop="longitude" label="经度" />
           <el-table-column prop="latitude" label="纬度" />
-          <el-table-column prop="height" label="高度(m)" />
+          <el-table-column prop="height" label="高度(m)" width="90" />
+          <el-table-column label="绑定设备" min-width="200">
+            <template #default="{ row }">
+              <template v-if="row.deviceIds?.length">
+                <el-tag v-for="id in row.deviceIds" :key="id" size="small" style="margin: 2px">{{ deviceLabel(id) }}</el-tag>
+              </template>
+              <span v-else class="text-muted">—</span>
+            </template>
+          </el-table-column>
         </el-table>
         <el-empty v-if="!detailParsed.photoPoints.length" description="无拍照航点" :image-size="48" />
 
-        <el-divider content-position="left">设备访问顺序</el-divider>
-        <el-tag v-for="(id, i) in detailParsed.visitOrder" :key="id" style="margin: 4px">{{ i + 1 }}. {{ deviceLabel(id) }}</el-tag>
-        <el-empty v-if="!detailParsed.visitOrder.length" description="未指定访问顺序" :image-size="48" />
+        <el-divider v-if="detailParsed.visitOrder.length" content-position="left">设备访问顺序（展开）</el-divider>
+        <el-tag v-for="(id, i) in detailParsed.visitOrder" :key="`${id}-${i}`" style="margin: 4px">{{ i + 1 }}. {{ deviceLabel(id) }}</el-tag>
 
         <el-divider content-position="left">下发无人机 JSON</el-divider>
         <pre class="dispatch-json dispatch-json--dialog">{{ detailDispatchJson }}</pre>
@@ -823,5 +839,8 @@ onMounted(async () => {
 }
 .dispatch-json--dialog {
   max-height: 280px;
+}
+.text-muted {
+  color: #909399;
 }
 </style>

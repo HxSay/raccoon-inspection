@@ -20,7 +20,9 @@ public class UavRouteDispatchPayload {
     private GeoPoint landing;
 
     private List<GeoPoint> waypoints;
-    private List<GeoPoint> photoWaypoints;
+    /** 拍照航点及每点绑定的巡检设备 */
+    private List<PhotoWaypoint> photoWaypoints;
+    /** 由拍照航点绑定顺序展开的设备访问顺序（兼容旧消费方） */
     private List<Long> deviceVisitOrder;
 
     private Estimated estimated;
