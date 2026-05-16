@@ -5,7 +5,7 @@ import { createTerrainRoughnessTexture, createGalvanizedMetalTexture, createConc
 import { PATROL_LANE_COUNT, PATROL_LANE_Z_SPACING_M } from './constants'
 
 /**
- * 写实风格电网巡检场景：程序化硬化地表（与站内混凝土贴图体系一致）、丘陵微起伏、角钢塔、导线、物理天空与 IBL。
+ * 写实风格电网巡检场景：草原式起伏地表、单/多排角钢塔与导线、物理天空与 IBL。
  * 依赖 WebGLRenderer 生成 PMREM（调用方传入 renderer）。
  */
 
@@ -256,28 +256,26 @@ function buildLineBetweenTowers(
 
 export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSceneBundle {
   const scene = new THREE.Scene()
-  scene.fog = new THREE.FogExp2(0xeaedf2, 0.00098)
+  scene.fog = new THREE.FogExp2(0xd4e8dc, 0.0009)
 
   const world = new THREE.Group()
   scene.add(world)
 
-  const yardMap = createConcreteTexture()
-  yardMap.repeat.set(72, 72)
   const groundRough = createTerrainRoughnessTexture()
+  groundRough.repeat.set(28, 28)
   const metal = createGalvanizedMetalTexture()
   const conc = createConcreteTexture()
 
-  const terrainGeo = new THREE.PlaneGeometry(720, 720, 160, 160)
+  const terrainGeo = new THREE.PlaneGeometry(720, 720, 192, 192)
   terrainGeo.rotateX(-Math.PI / 2)
-  displaceTerrain(terrainGeo, 0.38)
+  displaceTerrain(terrainGeo, 0.58)
 
   const terrainMat = new THREE.MeshStandardMaterial({
-    map: yardMap,
     roughnessMap: groundRough,
-    color: 0xe4e8ee,
-    roughness: 0.86,
+    color: 0x5f8f52,
+    roughness: 0.92,
     metalness: 0.02,
-    envMapIntensity: 0.26
+    envMapIntensity: 0.18
   })
   const terrain = new THREE.Mesh(terrainGeo, terrainMat)
   terrain.receiveShadow = true
@@ -319,7 +317,7 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
     const zRow = corridorZ0 + lane * PATROL_LANE_Z_SPACING_M
     const towerAnchors: TowerWireAnchors[] = []
     for (let i = 0; i < xs.length; i++) {
-      const h = heights[i] + (lane - 1) * 1.1
+      const h = heights[i] + (PATROL_LANE_COUNT > 1 ? (lane - 1) * 1.1 : 0)
       towerAnchors.push(createTransmissionTower(xs[i], zRow, h, world, steel, concMat, insMat))
     }
     buildLineBetweenTowers(towerAnchors, world, wireMat, spacerMat)
@@ -334,7 +332,7 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   sunVec.setFromSphericalCoords(1, phi, theta)
   sky.material.uniforms['sunPosition'].value.copy(sunVec)
 
-  const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x3d4a2a, 0.35)
+  const hemi = new THREE.HemisphereLight(0xb8daf8, 0x4a6b38, 0.4)
   scene.add(hemi)
 
   const sun = new THREE.DirectionalLight(0xfff5e6, 0.78)
@@ -355,7 +353,7 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   pmrem.compileEquirectangularShader()
   const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04)
   scene.environment = envRT.texture
-  scene.background = new THREE.Color(0xc8d8ec)
+  scene.background = new THREE.Color(0xb5d4ec)
 
   const corridorHomes: THREE.Vector3[] = []
   for (let lane = 0; lane < PATROL_LANE_COUNT; lane++) {
@@ -364,7 +362,7 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   const homePosition = corridorHomes[0]!.clone()
   const terminalPosition = new THREE.Vector3(-42, 0, 72)
 
-  const textures: THREE.Texture[] = [yardMap, groundRough, metal, conc]
+  const textures: THREE.Texture[] = [groundRough, metal, conc]
 
   const dispose = () => {
     pmrem.dispose()

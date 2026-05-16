@@ -5,7 +5,7 @@
 import { ref, shallowRef, onMounted, onBeforeUnmount, computed, watch, reactive } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { createPowerlineScene } from '@/sim/scene'
 import { createSubstationScene } from '@/sim/substationScene'
 import { createThermalPlantScene } from '@/sim/thermalPlantScene'
@@ -20,6 +20,16 @@ import { DroneNest } from '@/sim/droneNest'
 import { EdgeTerminal3D } from '@/sim/edgeTerminal'
 import { createEdgeMetricsSimulator, type EdgeTerminalMetrics } from '@/sim/edgeMetrics'
 import { SceneObjectEditor, type SceneObjectEditorSnapshot } from '@/sim/sceneEditor'
+import {
+  applySceneState,
+  appendRemovalAndPersist,
+  clearAllSceneStates,
+  clearSceneState,
+  getStablePathToWorld,
+  loadSceneState,
+  saveSceneState,
+  type ScenePersistTab
+} from '@/sim/scenePersistence'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -66,8 +76,9 @@ function mergePatrolReports(reports: MissionReport[]): MissionReport {
 /** 3D 场景 Tab：输电巡检 / 变电站 / 火电站（室内廊道 + 机器狗） */
 const sceneTab = ref<'patrol' | 'substation' | 'thermal'>('patrol')
 
-/** Shift+点选 + 变换手柄：编辑当前 Tab 场景内物体（不持久化） */
+/** Shift+点选 + 变换手柄：编辑当前 Tab 场景内物体（删除 / 应用数值 /「保存场景」写入本机） */
 const sceneEditEnabled = ref(false)
+const simDrawerOpen = ref(false)
 const sceneEditorSnap = shallowRef<SceneObjectEditorSnapshot | null>(null)
 const editForm = reactive({
   x: 0,
@@ -135,7 +146,7 @@ let sceneObjectEditor: SceneObjectEditor | null = null
 const viewHint = computed(() => {
   const edit =
     sceneEditEnabled.value && (sceneTab.value === 'patrol' || sceneTab.value === 'substation' || sceneTab.value === 'thermal')
-      ? ' 编辑：Shift+左键点选物体，拖轴平移；左侧可改数值或删除（不持久化）。'
+      ? ' 编辑：Shift+左键点选，拖轴平移；顶部面板可改数值。删除已自动保存；平移后请点「保存场景」写入本机。'
       : ''
   if (sceneTab.value === 'substation') {
     return '变电站场景 · 地面仰视 · 左键环视 · 滚轮缩放（与输电场地独立）' + edit
@@ -160,7 +171,7 @@ function applyViewMode(prev?: 'aerial' | 'ground') {
     }
     camera.fov = 60
     camera.updateProjectionMatrix()
-    // 站在起降区南侧略偏东，仰望线路走廊与杆塔（多排走廊 Z 约 -35～45）
+    // 站在起降区南侧略偏东，仰望单排线路走廊与杆塔（塔列 z≈-35）
     camera.position.set(38, 1.72, 58)
     controls.target.set(12, 38, -22)
     controls.minDistance = 0.35
@@ -193,6 +204,7 @@ function ensureSubstationBundle(): void {
   if (!renderer || substationBundle || substationLoadFailed) return
   try {
     substationBundle = createSubstationScene(renderer)
+    applySceneState(substationBundle.world, 'substation')
   } catch (e) {
     console.error('[substation]', e)
     substationLoadFailed = true
@@ -283,6 +295,7 @@ function ensureThermalPlantBundle(): void {
     robotDog.root.userData.noScenePick = true
     robotDog.setPose(thermalBundle.homePosition.clone(), 0)
     thermalBundle.world.add(robotDog.root)
+    applySceneState(thermalBundle.world, 'thermal')
   } catch (e) {
     console.error('[thermal]', e)
     thermalLoadFailed = true
@@ -494,6 +507,8 @@ function initThree(): () => void {
     d.root.userData.noScenePick = true
   })
 
+  applySceneState(world, 'patrol')
+
   sceneObjectEditor = new SceneObjectEditor(
     canvas,
     camera,
@@ -507,6 +522,19 @@ function initThree(): () => void {
     },
     (snap) => {
       sceneEditorSnap.value = snap
+    },
+    (obj) => {
+      const tab = sceneTab.value
+      const w =
+        tab === 'patrol' && sceneBundle
+          ? sceneBundle.world
+          : tab === 'substation' && substationBundle
+            ? substationBundle.world
+            : tab === 'thermal' && thermalBundle
+              ? thermalBundle.world
+              : null
+      if (!w) return
+      appendRemovalAndPersist(tab as ScenePersistTab, w, getStablePathToWorld(obj, w))
     }
   )
   sceneObjectEditor.setEnabled(sceneEditEnabled.value)
@@ -662,6 +690,53 @@ watch(sceneEditEnabled, (on) => {
   sceneObjectEditor?.setEnabled(on)
 })
 
+function getPersistWorld(): THREE.Group | null {
+  const t = sceneTab.value
+  if (t === 'patrol' && sceneBundle) return sceneBundle.world
+  if (t === 'substation' && substationBundle) return substationBundle.world
+  if (t === 'thermal' && thermalBundle) return thermalBundle.world
+  return null
+}
+
+function saveSceneLayout() {
+  const w = getPersistWorld()
+  if (!w) {
+    ElMessage.warning('当前场景尚未就绪')
+    return
+  }
+  const tab = sceneTab.value as ScenePersistTab
+  const prev = loadSceneState(tab)
+  saveSceneState(tab, w, prev?.removedPaths ?? [])
+  ElMessage.success('已保存到本机浏览器（localStorage），刷新后仍会保留。')
+}
+
+function persistTransformsMerged() {
+  const w = getPersistWorld()
+  if (!w) return
+  const tab = sceneTab.value as ScenePersistTab
+  const prev = loadSceneState(tab)
+  saveSceneState(tab, w, prev?.removedPaths ?? [])
+}
+
+async function onPersistCommand(cmd: 'current' | 'all') {
+  try {
+    const msg =
+      cmd === 'all'
+        ? '将清除输电巡检、变电站、火电站三个场景的本地修改，并刷新页面。是否继续？'
+        : '将清除当前场景的本地修改，并刷新页面。是否继续？'
+    await ElMessageBox.confirm(msg, '恢复默认', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消'
+    })
+    if (cmd === 'all') clearAllSceneStates()
+    else clearSceneState(sceneTab.value as ScenePersistTab)
+    location.reload()
+  } catch {
+    /* 用户取消 */
+  }
+}
+
 function applySceneEditForm() {
   sceneObjectEditor?.applyFromForm({
     x: editForm.x,
@@ -672,12 +747,13 @@ function applySceneEditForm() {
     sy: editForm.sy,
     sz: editForm.sz
   })
+  persistTransformsMerged()
 }
 
 function deleteSceneSelection() {
   if (!sceneEditorSnap.value) return
   sceneObjectEditor?.deleteSelected()
-  ElMessage.info('已从当前内存场景移除；刷新页面会恢复默认模型。')
+  ElMessage.success('已删除并写入本地保存。')
 }
 
 function clearSceneSelection() {

@@ -16,9 +16,9 @@ export interface SceneObjectEditorSnapshot {
   sz: number
 }
 
-type Pickable = THREE.Mesh | THREE.Line | THREE.LineSegments | THREE.Points
+export type ScenePickable = THREE.Mesh | THREE.Line | THREE.LineSegments | THREE.Points
 
-function isPickable(o: THREE.Object3D): o is Pickable {
+function isPickable(o: THREE.Object3D): o is ScenePickable {
   return (
     o instanceof THREE.Mesh ||
     o instanceof THREE.Line ||
@@ -58,7 +58,7 @@ function disposeSubtreeResources(root: THREE.Object3D): void {
 export class SceneObjectEditor {
   private readonly raycaster = new THREE.Raycaster()
   private readonly transformControls: TransformControls
-  private selected: Pickable | null = null
+  private selected: ScenePickable | null = null
   private readonly removePointerDown: () => void
   enabled = false
 
@@ -67,7 +67,8 @@ export class SceneObjectEditor {
     camera: THREE.PerspectiveCamera,
     private readonly orbit: OrbitControls,
     private readonly getContext: () => { scene: THREE.Scene; world: THREE.Group } | null,
-    private readonly onSelection: (snap: SceneObjectEditorSnapshot | null) => void
+    private readonly onSelection: (snap: SceneObjectEditorSnapshot | null) => void,
+    private readonly onObjectDeleted?: (obj: ScenePickable) => void
   ) {
     this.transformControls = new TransformControls(camera, canvas)
     this.transformControls.setMode('translate')
@@ -113,7 +114,7 @@ export class SceneObjectEditor {
     if (ctx) ctx.scene.add(this.transformControls)
   }
 
-  private pickFirst(hits: THREE.Intersection[]): Pickable | null {
+  private pickFirst(hits: THREE.Intersection[]): ScenePickable | null {
     for (const h of hits) {
       const o = h.object
       if (!isPickable(o)) continue
@@ -123,7 +124,7 @@ export class SceneObjectEditor {
     return null
   }
 
-  private select(obj: Pickable, scene: THREE.Scene): void {
+  private select(obj: ScenePickable, scene: THREE.Scene): void {
     this.clearSelection()
     this.selected = obj
     this.transformControls.attach(obj)
@@ -173,6 +174,7 @@ export class SceneObjectEditor {
   deleteSelected(): void {
     const o = this.selected
     if (!o) return
+    this.onObjectDeleted?.(o)
     this.transformControls.detach()
     const parent = o.parent
     if (parent) parent.remove(o)
