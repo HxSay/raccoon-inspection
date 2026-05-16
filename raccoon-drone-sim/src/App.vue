@@ -18,6 +18,8 @@ import { assertWaypointLimit, fetchCloudPlannedPath, fetchThermalPlantCloudPath 
 import { fetchRouteDispatch } from '@/api/droneRoute'
 import type { UavRouteDispatchPayload } from '@/types/droneDispatch'
 import { EdgeCloudTelemetryReporter } from '@/sim/edgeCloudTelemetry'
+import { uploadMultimodalMissionResult } from '@/sim/edgeCloudMultimodal'
+import type { MultimodalModalityType } from '@/sim/multimodalTypes'
 import { dispatchToCloudPath, dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
 import type { CloudPathPoint } from '@/sim/types'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
@@ -125,6 +127,14 @@ const lastReport = shallowRef<MissionReport | null>(null)
 /** 多机输电巡检：各机任务报告缓存，凑齐后合并弹窗 */
 const patrolFleetBuffer = ref<MissionReport[]>([])
 
+const MODALITY_LABEL: Record<MultimodalModalityType, string> = {
+  VISIBLE: '可见光',
+  THERMAL: '热成像',
+  AUDIO: '声音',
+  VIBRATION: '振动',
+  TEMPERATURE: '温度'
+}
+
 function mergePatrolReports(reports: MissionReport[]): MissionReport {
   const startedAt = Math.min(...reports.map((r) => r.startedAt))
   const finishedAt = Math.max(...reports.map((r) => r.finishedAt))
@@ -135,6 +145,7 @@ function mergePatrolReports(reports: MissionReport[]): MissionReport {
     distanceM: reports.reduce((s, r) => s + r.distanceM, 0),
     photos: reports.flatMap((r) => r.photos),
     aiResults: reports.flatMap((r) => r.aiResults),
+    multimodalSamples: reports.flatMap((r) => r.multimodalSamples ?? []),
     telemetrySent: reports.reduce((s, r) => s + r.telemetrySent, 0),
     bufferedWhileOffline: Math.max(...reports.map((r) => r.bufferedWhileOffline))
   }
@@ -186,6 +197,35 @@ const reportTableRows = computed(() => {
     }
   })
 })
+
+const multimodalTableRows = computed(() => {
+  const r = lastReport.value
+  if (!r?.multimodalSamples?.length) return []
+  return r.multimodalSamples.map((s) => ({
+    id: s.id,
+    wp: s.waypointIndex,
+    modality: MODALITY_LABEL[s.modalityType],
+    preview: s.previewDataUrl ?? '',
+    summary: summarizeMultimodalPayload(s.modalityType, s.payload)
+  }))
+})
+
+function summarizeMultimodalPayload(type: MultimodalModalityType, payload: Record<string, unknown>): string {
+  if (type === 'TEMPERATURE') {
+    return `${payload.ambientC}~${payload.maxC} °C`
+  }
+  if (type === 'AUDIO') {
+    return `峰值 ${payload.peakDb} dB`
+  }
+  if (type === 'VIBRATION') {
+    const axis = payload.axis as { z?: { rms?: number } }
+    return `Z rms ${axis?.z?.rms ?? '—'} mm/s`
+  }
+  if (type === 'VISIBLE' || type === 'THERMAL') {
+    return payload.thumbnail ? '含缩略图' : '—'
+  }
+  return '—'
+}
 
 let substationLoadFailed = false
 let thermalLoadFailed = false
@@ -399,8 +439,35 @@ function onPhoto() {
   offlineBufferHint.value = stateReports.reduce((a, s) => a + s.getBufferedCount(), 0)
 }
 
-function onComplete(r: MissionReport) {
-  lastReport.value = r
+async function finalizeMissionReport(r: MissionReport): Promise<MissionReport> {
+  const report: MissionReport = { ...r, multimodalSamples: r.multimodalSamples ?? [] }
+  const ctx = activeMissionMeta.value ?? (routeFetchUavId.value != null ? { uavId: routeFetchUavId.value } : null)
+  if (!ctx) {
+    report.multimodalUpload = { error: '缺少 uavId 任务上下文，未上报' }
+    return report
+  }
+  if (!report.multimodalSamples.length) {
+    return report
+  }
+  if (simulateDisconnect.value) {
+    report.multimodalUpload = { error: '断网模拟中，多模态结果未上报云端' }
+    return report
+  }
+  try {
+    taskStatus.value = '正在上报多模态巡检结果至 iot-data…'
+    const res = await uploadMultimodalMissionResult(report, ctx)
+    report.multimodalUpload = res
+    ElMessage.success(`多模态数据已入库（session ${res.sessionId}，${res.sampleCount} 条）`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    report.multimodalUpload = { error: msg }
+    ElMessage.error(`多模态上报失败: ${msg}`)
+  }
+  return report
+}
+
+async function onComplete(r: MissionReport) {
+  lastReport.value = await finalizeMissionReport(r)
   reportOpen.value = true
   missionJson.value = missionRunners[0]?.getDjiMissionPreview() ?? missionJson.value
 }
@@ -451,11 +518,12 @@ function rebuildMissionRunner() {
   if (!stateReports.length) return
   if (sceneTab.value === 'patrol' && sceneBundle && patrolDrones.length) {
     const n = Math.min(patrolDrones.length, sceneBundle.corridorHomes.length)
-    const onPatrolFleetComplete = (r: MissionReport) => {
+    const onPatrolFleetComplete = async (r: MissionReport) => {
       patrolFleetBuffer.value.push(r)
       if (patrolFleetBuffer.value.length >= n) {
-        lastReport.value = mergePatrolReports(patrolFleetBuffer.value)
+        const merged = mergePatrolReports(patrolFleetBuffer.value)
         patrolFleetBuffer.value = []
+        lastReport.value = await finalizeMissionReport(merged)
         reportOpen.value = true
         missionJson.value = missionRunners.map((mr) => mr.getDjiMissionPreview()).join('\n---\n')
       }
@@ -1287,10 +1355,20 @@ function try65535Demo() {
           <el-descriptions-item label="时长 / s">{{ lastReport.durationSec.toFixed(1) }}</el-descriptions-item>
           <el-descriptions-item label="距离 / m">{{ lastReport.distanceM.toFixed(1) }}</el-descriptions-item>
           <el-descriptions-item label="照片">{{ lastReport.photos.length }}</el-descriptions-item>
+          <el-descriptions-item label="多模态采样">{{ lastReport.multimodalSamples?.length ?? 0 }}</el-descriptions-item>
           <el-descriptions-item label="遥测条数">{{ lastReport.telemetrySent }}</el-descriptions-item>
+          <el-descriptions-item label="云端入库">
+            <span v-if="lastReport.multimodalUpload && 'sessionId' in lastReport.multimodalUpload">
+              session {{ lastReport.multimodalUpload.sessionId }}（{{ lastReport.multimodalUpload.sampleCount }} 条）
+            </span>
+            <span v-else-if="lastReport.multimodalUpload && 'error' in lastReport.multimodalUpload" class="text-amber-600">
+              {{ lastReport.multimodalUpload.error }}
+            </span>
+            <span v-else>—</span>
+          </el-descriptions-item>
         </el-descriptions>
         <div class="mb-2 text-[10px] text-[var(--ia-muted)]">
-          关键航点画面为仿真相机离屏渲染截图；元数据含伪 GPS / 云台角。业务上原图不上云。
+          每个拍照航点采集可见光、热成像、声音、振动、温度；任务结束后批量上报 raccoon-iot-data。
         </div>
         <el-table :data="reportTableRows" stripe size="small" max-height="360" class="font-mono">
           <el-table-column label="巡检画面" width="156" align="center">
@@ -1310,6 +1388,35 @@ function try65535Demo() {
           <el-table-column prop="wp" label="WP" width="48" />
           <el-table-column prop="ai" label="AI" min-width="100" />
           <el-table-column prop="defect" label="结论" width="88" />
+        </el-table>
+
+        <div v-if="multimodalTableRows.length" class="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">
+          多模态巡检数据
+        </div>
+        <el-table
+          v-if="multimodalTableRows.length"
+          :data="multimodalTableRows"
+          stripe
+          size="small"
+          max-height="280"
+          class="font-mono"
+        >
+          <el-table-column label="预览" width="88" align="center">
+            <template #default="{ row }">
+              <el-image
+                v-if="row.preview"
+                :src="row.preview"
+                fit="cover"
+                class="report-thumb"
+                preview-teleported
+              />
+              <span v-else class="text-[var(--ia-muted)]">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="wp" label="WP" width="44" />
+          <el-table-column prop="modality" label="模态" width="72" />
+          <el-table-column prop="summary" label="摘要" min-width="120" />
+          <el-table-column prop="id" label="采样 ID" min-width="140" show-overflow-tooltip />
         </el-table>
       </template>
     </el-dialog>

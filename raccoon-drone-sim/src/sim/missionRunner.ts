@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { AUTO_FLIGHT_SPEED, INSPECTION_POINT_SPEED, PHOTO_GIMBAL_PITCH_DEG } from './constants'
 import { buildPhotoMeta, runLocalAiDetect } from './aiDetect'
+import { collectMultimodalAtWaypoint } from './multimodalSim'
+import type { MultimodalSample } from './multimodalTypes'
 import {
   convertToDjiWaypointMission,
   fetchCloudPlannedPath,
@@ -115,6 +117,7 @@ export class MissionRunner {
   private finishedAt = 0
   private photos: PhotoCaptureMeta[] = []
   private aiResults: AiDefectResult[] = []
+  private multimodalSamples: MultimodalSample[] = []
   private telemetrySent = 0
   private missionPath: CloudPathPoint[] = []
   private djiMissionJson = ''
@@ -152,6 +155,7 @@ export class MissionRunner {
     this.distanceM = 0
     this.photos = []
     this.aiResults = []
+    this.multimodalSamples = []
     this.telemetrySent = 0
     this.capturing = false
     this.takeoffBlend = 0
@@ -172,6 +176,7 @@ export class MissionRunner {
       this.flown = []
       this.photos = []
       this.aiResults = []
+      this.multimodalSamples = []
       this.triggered.clear()
       this.telemetrySent = 0
       this.u = 0
@@ -410,7 +415,10 @@ export class MissionRunner {
           imageDataUrl
         })
         this.photos.push(meta)
-        this.opts.onStatus('本地 AI 缺陷检测中（不上传原图）…')
+        this.opts.onStatus('多模态采集中（可见光/热成像/声音/振动/温度）…')
+        const mm = await collectMultimodalAtWaypoint(meta)
+        this.multimodalSamples.push(...mm)
+        this.opts.onStatus('本地 AI 缺陷检测中…')
         const ai = await runLocalAiDetect(meta)
         this.aiResults.push(ai)
         this.opts.onPhoto(meta, ai)
@@ -452,6 +460,7 @@ export class MissionRunner {
       distanceM: this.distanceM,
       photos: [...this.photos],
       aiResults: [...this.aiResults],
+      multimodalSamples: [...this.multimodalSamples],
       telemetrySent: this.telemetrySent,
       bufferedWhileOffline: this.opts.stateReport.getBufferedCount()
     }

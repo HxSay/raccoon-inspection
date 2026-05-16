@@ -13,7 +13,7 @@
     <artifactId>raccoon-cloud-iot-data</artifactId>
     <packaging>jar</packaging>
     <name>raccoon-cloud-iot-data</name>
-    <description>无人机历史轨迹存储（uav_location_history）</description>
+    <description>无人机 IoT 数据：历史轨迹与多模态巡检结果</description>
 
     <dependencies>
         <dependency>

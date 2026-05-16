@@ -1,4 +1,5 @@
 import type { Object3D, Vector3 } from 'three'
+import type { MultimodalSample } from './multimodalTypes'
 
 /** 云端下发的路径点 */
 export interface CloudPathPoint {
@@ -117,6 +118,10 @@ export interface MissionReport {
   distanceM: number
   photos: PhotoCaptureMeta[]
   aiResults: AiDefectResult[]
+  /** 边缘采集的多模态巡检采样（可见光/热成像/声音/振动/温度） */
+  multimodalSamples: MultimodalSample[]
   telemetrySent: number
   bufferedWhileOffline: number
+  /** 任务结束后上报 iot-data 的结果 */
+  multimodalUpload?: { sessionId: number; sampleCount: number } | { error: string }
 }
