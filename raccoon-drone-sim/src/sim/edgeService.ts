@@ -14,6 +14,7 @@ import {
   PHOTO_GIMBAL_PITCH_DEG,
   RTK_MODE_FIXED
 } from './constants'
+import { sceneToGps } from './aiDetect'
 import type { CloudPathPoint, DjiWaypoint, DjiWaypointMission } from './types'
 import type { DeployMode } from './types'
 
@@ -104,13 +105,18 @@ export function convertToDjiWaypointMission(
       actions.push({ type: 'GIMBAL_ROTATE', gimbalPitchDeg: PHOTO_GIMBAL_PITCH_DEG, gimbalYawDeg: yaw })
       actions.push({ type: 'TAKE_PHOTO' })
     }
+    const gps =
+      p.longitude != null && p.latitude != null
+        ? { longitude: p.longitude, latitude: p.latitude, altitudeM: p.height ?? p.y }
+        : sceneToGps(p.x, p.y, p.z)
     return {
       index: i,
-      x: p.x,
-      y: p.y,
-      z: p.z,
+      longitude: gps.longitude,
+      latitude: gps.latitude,
+      height: gps.altitudeM,
       speedMps,
-      actions
+      actions,
+      scenePosition: { x: p.x, y: p.y, z: p.z }
     }
   })
   return {

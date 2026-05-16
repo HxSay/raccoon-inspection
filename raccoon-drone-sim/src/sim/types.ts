@@ -1,13 +1,15 @@
 import type { Object3D, Vector3 } from 'three'
 
-/** 云端下发的路径点（地理/场景统一用米制局部坐标） */
+/** 云端下发的路径点 */
 export interface CloudPathPoint {
   id: string
-  /** 东向 X（米） */
+  /** WGS84 经度 / 纬度 / 高度（米），与 raccoon-cloud-drone 下发一致 */
+  longitude?: number
+  latitude?: number
+  height?: number
+  /** 仿真场景局部坐标（米）：x 东向、y 高度、z 北向 */
   x: number
-  /** 高度（米） */
   y: number
-  /** 北向 Z（米） */
   z: number
   /** 是否为拍照点 */
   isPhoto: boolean
@@ -30,15 +32,20 @@ export interface DjiWaypointAction {
   gimbalYawDeg?: number
 }
 
-/** 大疆 Waypoint 任务中的单航点（仿真） */
+/** 大疆 Waypoint 任务中的单航点 */
 export interface DjiWaypoint {
   index: number
-  x: number
-  y: number
-  z: number
+  /** WGS84，与后台 dispatch.waypoints 同序同值 */
+  longitude: number
+  latitude: number
+  height: number
   /** 飞向该点时的目标速度（接近巡检点时降为 INSPECTION_POINT_SPEED） */
   speedMps: number
   actions: DjiWaypointAction[]
+  /** 本点关联的巡检设备 ID（来自 photoWaypoints） */
+  deviceIds?: number[]
+  /** 仿真场景坐标（米），仅本地 Three.js 飞行用，勿与经纬度对照 */
+  scenePosition?: { x: number; y: number; z: number }
 }
 
 /** 大疆 Waypoint 任务整体配置（与边缘端转换结果对齐的字段子集） */
@@ -49,6 +56,22 @@ export interface DjiWaypointMission {
   headingMode: 'AUTO'
   finishAction: 'GO_HOME' | 'NO_ACTION'
   waypoints: DjiWaypoint[]
+  /** 来自 raccoon-cloud-drone 路径规划的元数据 */
+  missionMeta?: {
+    planId?: number
+    taskId?: number
+    mapId?: number
+    uavId?: number
+    algorithm?: string
+    deviceVisitOrder?: number[]
+    estimated?: {
+      distanceM: number
+      durationSec: number
+      batteryPct: number
+    }
+    /** 后台原始飞行点序列（与 dispatch.waypoints 一致） */
+    sourceFlightPath?: { longitude: number; latitude: number; height: number }[]
+  }
 }
 
 /** 拍照元数据；imageDataUrl 为仿真离屏渲染截图（JPEG data URL），不上传云端 */

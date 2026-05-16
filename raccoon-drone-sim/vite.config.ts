@@ -11,6 +11,13 @@ export default defineConfig({
   },
   server: {
     port: 3010,
-    host: true
+    host: true,
+    proxy: {
+      '/api/drone': {
+        target: 'http://localhost:8091',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/drone/, '')
+      }
+    }
   }
 })

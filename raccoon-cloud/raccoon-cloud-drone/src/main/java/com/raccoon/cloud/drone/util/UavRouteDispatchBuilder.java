@@ -31,7 +31,8 @@ public final class UavRouteDispatchBuilder {
         payload.setTakeoff(fullPath.isEmpty() ? parsePoint(plan.getStartPoint()) : fullPath.get(0));
         payload.setLanding(
                 fullPath.isEmpty() ? parsePoint(plan.getEndPoint()) : fullPath.get(fullPath.size() - 1));
-        payload.setWaypoints(path);
+        /** 飞行点序列与 path_points 完整路径一致（含起降点） */
+        payload.setWaypoints(fullPath);
         List<PhotoWaypoint> photoWaypoints = PhotoWaypointUtils.resolveCoordinates(
                 parseList(plan.getPhotoPoints(), new TypeReference<List<PhotoWaypoint>>() {}), fullPath);
         payload.setPhotoWaypoints(photoWaypoints);

@@ -15,6 +15,8 @@ import { MissionRunner } from '@/sim/missionRunner'
 import { StateReportService } from '@/sim/stateReport'
 import type { DeployMode, MissionReport, TelemetryPayload } from '@/sim/types'
 import { assertWaypointLimit, fetchCloudPlannedPath, fetchThermalPlantCloudPath } from '@/sim/edgeService'
+import { fetchRouteDispatch } from '@/api/droneRoute'
+import { dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
 import { DroneNest } from '@/sim/droneNest'
 import { EdgeTerminal3D } from '@/sim/edgeTerminal'
@@ -49,6 +51,10 @@ const simulateRtkLost = ref(false)
 const batteryPercent = ref(96)
 const taskStatus = ref('待命')
 const missionJson = ref('')
+const routeFetchUavId = ref<number | undefined>(1)
+const routeFetchTaskId = ref<number | undefined>(1)
+const routeFetchLoading = ref(false)
+const routeFetchRawJson = ref('')
 
 const telemetry = shallowRef<TelemetryPayload | null>(null)
 const cloudReceiveCount = ref(0)
@@ -881,6 +887,31 @@ function clearSceneSelection() {
   sceneObjectEditor?.clearSelection()
 }
 
+async function pullRouteAndConvert() {
+  if (routeFetchUavId.value == null || routeFetchTaskId.value == null) {
+    ElMessage.warning('请输入无人机 ID 与巡检任务 ID')
+    return
+  }
+  routeFetchLoading.value = true
+  try {
+    taskStatus.value = '正在拉取智能巡检路径…'
+    const dispatch = await fetchRouteDispatch(routeFetchUavId.value, routeFetchTaskId.value)
+    routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
+    const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
+    missionJson.value = JSON.stringify(dji, null, 2)
+    const n = dji.waypoints.length
+    const src = dispatch.waypoints?.length ?? 0
+    taskStatus.value = `已转换 ${n} 个航点（与后台 waypoints ${src} 个逐点对齐）`
+    ElMessage.success(`Waypoint 已与后台 ${n} 个飞行点对齐`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    taskStatus.value = `拉取失败: ${msg}`
+    ElMessage.error(msg)
+  } finally {
+    routeFetchLoading.value = false
+  }
+}
+
 function try65535Demo() {
   try {
     assertWaypointLimit(DJI_MAX_WAYPOINTS + 1)
@@ -1061,6 +1092,42 @@ function try65535Demo() {
           <template #header>航点上限（65535）</template>
           <el-button size="small" class="!font-mono" @click="try65535Demo">触发校验</el-button>
         </el-card>
+
+        <el-card shadow="never" class="ia-card">
+          <template #header>智能巡检路径（云端）</template>
+          <div class="flex flex-col gap-2">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <div class="mb-0.5 text-[10px] text-[var(--ia-muted)]">无人机 ID</div>
+                <el-input-number v-model="routeFetchUavId" :min="1" :controls="false" class="!w-full" size="small" />
+              </div>
+              <div>
+                <div class="mb-0.5 text-[10px] text-[var(--ia-muted)]">巡检任务 ID</div>
+                <el-input-number v-model="routeFetchTaskId" :min="1" :controls="false" class="!w-full" size="small" />
+              </div>
+            </div>
+            <el-button
+              type="primary"
+              size="small"
+              class="!font-mono"
+              :loading="routeFetchLoading"
+              @click="pullRouteAndConvert"
+            >
+              拉取并转换 Waypoint JSON
+            </el-button>
+            <p class="text-[9px] leading-tight text-[var(--ia-muted)]">
+              调用
+              <code class="text-[var(--ia-accent)]">GET /route-plan/dispatch</code>
+              （代理至 8091）。waypoints 与后台 waypoints 同序同坐标；scenePosition 仅仿真用，请勿与经纬度对照。
+            </p>
+          </div>
+        </el-card>
+
+        <el-collapse v-if="routeFetchRawJson" class="ia-collapse ia-collapse-json">
+          <el-collapse-item title="后台路径规划 JSON" name="dispatch">
+            <pre class="max-h-40 overflow-auto p-1 text-[10px] leading-snug text-[#8ab4f8]">{{ routeFetchRawJson }}</pre>
+          </el-collapse-item>
+        </el-collapse>
 
         <el-collapse v-if="missionJson" class="ia-collapse ia-collapse-json">
           <el-collapse-item title="Waypoint 任务 JSON" name="1">
