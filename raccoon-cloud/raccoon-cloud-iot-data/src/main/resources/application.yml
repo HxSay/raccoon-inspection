@@ -4,6 +4,8 @@ server:
     include-message: always
 
 spring:
+  codec:
+    max-in-memory-size: 32MB
   application:
     name: raccoon-cloud-iot-data
   config:

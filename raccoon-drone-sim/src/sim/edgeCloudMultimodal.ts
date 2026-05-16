@@ -40,12 +40,16 @@ export async function uploadMultimodalMissionResult(
   return postUavInspectionMultimodal(body)
 }
 
-/** 云端仅存指标与元数据，不传输 base64 缩略图以减小请求体 */
-function sanitizePayloadForCloud(payload: Record<string, unknown>): Record<string, unknown> {
-  const out = { ...payload }
-  if (typeof out.thumbnail === 'string') {
-    out.thumbnailChars = out.thumbnail.length
-    delete out.thumbnail
+/** 可见光/热成像：将缩略图 data URL 一并入库，供管理端预览 */
+function buildPayloadForCloud(s: MultimodalSample): Record<string, unknown> {
+  const out = { ...(s.payload as Record<string, unknown>) }
+  if (s.modalityType === 'VISIBLE' || s.modalityType === 'THERMAL') {
+    const thumb =
+      s.previewDataUrl ||
+      (typeof out.thumbnail === 'string' ? (out.thumbnail as string) : undefined)
+    if (thumb) {
+      out.thumbnail = thumb
+    }
   }
   return out
 }
@@ -58,6 +62,6 @@ function toUploadSample(s: MultimodalSample) {
     longitude: round6(s.gps.longitude),
     latitude: round6(s.gps.latitude),
     height: Math.round(s.gps.altitudeM * 100) / 100,
-    payload: sanitizePayloadForCloud(s.payload as Record<string, unknown>)
+    payload: buildPayloadForCloud(s)
   }
 }

@@ -100,6 +100,28 @@ const formatTime = (t?: string) => {
 
 const modalityLabel = (type: string) => MODALITY_LABEL[type] ?? type
 
+const isImageModality = (type: string) => type === 'VISIBLE' || type === 'THERMAL'
+
+const sampleImageSrc = (row: UavInspectionSample): string | undefined => {
+  const thumb = row.payload?.thumbnail
+  if (typeof thumb === 'string' && thumb.startsWith('data:image')) {
+    return thumb
+  }
+  return undefined
+}
+
+const payloadForDisplay = (row: UavInspectionSample): Record<string, unknown> => {
+  const p = { ...(row.payload ?? {}) }
+  if (typeof p.thumbnail === 'string') {
+    const len = p.thumbnail.length
+    p.thumbnail = `[base64 图像, ${len} 字符]`
+  }
+  return p
+}
+
+const imageSamplesOfWaypoint = (rows: UavInspectionSample[]) =>
+  rows.filter((r) => isImageModality(r.modalityType))
+
 const payloadSummary = (row: UavInspectionSample): string => {
   const p = row.payload ?? {}
   switch (row.modalityType) {
@@ -109,7 +131,7 @@ const payloadSummary = (row: UavInspectionSample): string => {
         p.label,
         p.confidence != null ? `置信度 ${p.confidence}%` : null,
         p.minC != null && p.maxC != null ? `${p.minC}~${p.maxC}°C` : null,
-        p.thumbnailChars != null ? `缩略图 ${p.thumbnailChars} 字符` : null,
+        sampleImageSrc(row) ? null : p.thumbnailChars != null ? '无图像数据' : null,
         p.note
       ]
         .filter(Boolean)
@@ -222,7 +244,7 @@ onMounted(() => {
     <el-drawer
       v-model="drawerVisible"
       :title="activeSession ? `会话 #${activeSession.id} 多模态采样` : '多模态采样'"
-      size="56%"
+      size="68%"
       destroy-on-close
     >
       <div v-if="activeSession" class="session-meta">
@@ -243,7 +265,44 @@ onMounted(() => {
 
         <div v-for="[wp, rows] in groupedByWaypoint" :key="wp" class="waypoint-block">
           <div class="wp-title">航点 {{ wp + 1 }}</div>
+
+          <div v-if="imageSamplesOfWaypoint(rows).length" class="image-row">
+            <div
+              v-for="img in imageSamplesOfWaypoint(rows)"
+              :key="img.id"
+              class="image-card"
+            >
+              <div class="image-card-title">{{ modalityLabel(img.modalityType) }}</div>
+              <el-image
+                v-if="sampleImageSrc(img)"
+                class="sample-thumb"
+                :src="sampleImageSrc(img)"
+                :preview-src-list="[sampleImageSrc(img)!]"
+                fit="cover"
+                preview-teleported
+              />
+              <div v-else class="no-image">
+                <span>无图像</span>
+                <small>历史数据未存缩略图，请重新执行巡检上报</small>
+              </div>
+              <div class="image-meta">{{ payloadSummary(img) }}</div>
+            </div>
+          </div>
+
           <el-table :data="rows" size="small" border stripe>
+            <el-table-column label="预览" width="88" align="center">
+              <template #default="{ row }">
+                <el-image
+                  v-if="sampleImageSrc(row)"
+                  class="table-thumb"
+                  :src="sampleImageSrc(row)"
+                  :preview-src-list="[sampleImageSrc(row)!]"
+                  fit="cover"
+                  preview-teleported
+                />
+                <span v-else-if="isImageModality(row.modalityType)" class="no-thumb">—</span>
+              </template>
+            </el-table-column>
             <el-table-column label="模态" width="100">
               <template #default="{ row }">
                 <el-tag :type="(MODALITY_TAG[row.modalityType] as any) || 'info'" size="small">
@@ -271,7 +330,7 @@ onMounted(() => {
                   <template #reference>
                     <el-button type="primary" link>JSON</el-button>
                   </template>
-                  <pre class="json-pre">{{ JSON.stringify(row.payload, null, 2) }}</pre>
+                  <pre class="json-pre">{{ JSON.stringify(payloadForDisplay(row), null, 2) }}</pre>
                 </el-popover>
               </template>
             </el-table-column>
@@ -334,5 +393,71 @@ onMounted(() => {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.image-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.image-card {
+  width: 220px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+.image-card-title {
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #f5f7fa;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.sample-thumb {
+  width: 100%;
+  height: 140px;
+  display: block;
+  cursor: zoom-in;
+}
+
+.image-meta {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.4;
+}
+
+.no-image {
+  height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #909399;
+  font-size: 13px;
+  padding: 8px;
+  text-align: center;
+}
+
+.no-image small {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.table-thumb {
+  width: 64px;
+  height: 48px;
+  border-radius: 4px;
+  cursor: zoom-in;
+}
+
+.no-thumb {
+  color: #c0c4cc;
 }
 </style>
