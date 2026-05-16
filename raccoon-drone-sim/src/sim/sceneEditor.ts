@@ -52,7 +52,7 @@ function disposeSubtreeResources(root: THREE.Object3D): void {
 }
 
 /**
- * 场景物体编辑：Shift+左键点选，`TransformControls` 平移；侧栏改数值 / 删除。
+ * 场景物体编辑：Shift+左键点选，`TransformControls` 平移；表单改数值 / 删除（可由宿主写入本地持久化）。
  * 业务对象（机巢、终端、无人机、机器狗、航线可视化）应设 `userData.noScenePick = true`。
  */
 export class SceneObjectEditor {

@@ -1,0 +1,11 @@
+{
+  "name": "raccoon-inspection",
+  "private": true,
+  "description": "仓库根目录；可仿真前端在子目录 raccoon-drone-sim",
+  "scripts": {
+    "dev": "npm run dev --prefix raccoon-drone-sim",
+    "build": "npm run build --prefix raccoon-drone-sim",
+    "preview": "npm run preview --prefix raccoon-drone-sim",
+    "install:sim": "npm install --prefix raccoon-drone-sim"
+  }
+}

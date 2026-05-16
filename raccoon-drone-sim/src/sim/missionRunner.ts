@@ -75,6 +75,8 @@ export interface MissionRunnerOptions {
   onStatus: (s: string) => void
   onTelemetry: (t: TelemetryPayload) => void
   onPhoto: (p: PhotoCaptureMeta, ai: AiDefectResult) => void
+  /** 拍照帧：用仿真相机对当前 Three 场景离屏渲染（返回 JPEG data URL） */
+  captureInspectionPhoto?: () => string | null | Promise<string | null>
   onComplete: (r: MissionReport) => void
   onError: (e: Error) => void
   /** 纯可视化钩子：不改变航点、转换、遥测等业务逻辑 */
@@ -350,11 +352,22 @@ export class MissionRunner {
           this.opts.agent.setGimbal(pitch, ph.yawDeg * t)
           await new Promise((r) => setTimeout(r, 40))
         }
+        let imageDataUrl: string | undefined
+        const capFn = this.opts.captureInspectionPhoto
+        if (capFn) {
+          try {
+            const raw = await Promise.resolve(capFn())
+            if (raw) imageDataUrl = raw
+          } catch (e) {
+            console.warn('[MissionRunner] captureInspectionPhoto', e)
+          }
+        }
         const meta = buildPhotoMeta({
           waypointIndex: ph.wpIndex,
           position: { x: pos.x, y: pos.y, z: pos.z },
           gimbalPitchDeg: PHOTO_GIMBAL_PITCH_DEG,
-          gimbalYawDeg: ph.yawDeg
+          gimbalYawDeg: ph.yawDeg,
+          imageDataUrl
         })
         this.photos.push(meta)
         this.opts.onStatus('本地 AI 缺陷检测中（不上传原图）…')

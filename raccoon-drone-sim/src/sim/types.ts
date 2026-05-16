@@ -1,4 +1,4 @@
-import type { Vector3 } from 'three'
+import type { Object3D, Vector3 } from 'three'
 
 /** 云端下发的路径点（地理/场景统一用米制局部坐标） */
 export interface CloudPathPoint {
@@ -19,6 +19,8 @@ export interface MissionInspectable {
   setGimbal(pitchDeg: number, yawDeg: number): void
   setRotorRunning(on: boolean): void
   tick(dt: number): void
+  /** 巡检快门光轴：局部 +Z 为视线方向，世界矩阵在拍照帧需已更新 */
+  getInspectionViewRig?(): Object3D | null
 }
 
 /** 大疆 Waypoint 任务中单点动作（仿真结构，可与真机 JSON 对齐扩展） */
@@ -49,13 +51,15 @@ export interface DjiWaypointMission {
   waypoints: DjiWaypoint[]
 }
 
-/** 拍照元数据（不上传原图，仅记录元数据用于报告） */
+/** 拍照元数据；imageDataUrl 为仿真离屏渲染截图（JPEG data URL），不上传云端 */
 export interface PhotoCaptureMeta {
   id: string
   waypointIndex: number
   timestamp: number
   gps: { latitude: number; longitude: number; altitudeM: number }
   gimbal: { pitchDeg: number; yawDeg: number; rollDeg: number }
+  /** 本机渲染的巡检画面（仿真相机） */
+  imageDataUrl?: string
 }
 
 /** 本地 AI 检测结果 */

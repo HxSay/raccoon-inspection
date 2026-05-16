@@ -10,7 +10,8 @@ import { createCarbonTexture, createGalvanizedMetalTexture, disposeTexture } fro
 export class M300DroneModel {
   readonly root: THREE.Group
   private readonly rotors: THREE.Mesh[] = []
-  private readonly gimbalPitch: THREE.Group
+  private gimbalPitch: THREE.Group
+  private readonly inspectionViewRig = new THREE.Object3D()
   private rotorSpeed = 0
   private bodyTex: THREE.Texture | null = null
   private metalTex: THREE.Texture | null = null
@@ -53,7 +54,9 @@ export class M300DroneModel {
           })
           this.root.add(s)
           this.gimbalPitch = new THREE.Group()
+          this.gimbalPitch.position.set(0, -0.55, 1.05)
           this.root.add(this.gimbalPitch)
+          this.attachInspectionRig()
           this.gltfMode = true
           disposeTexture(this.bodyTex)
           disposeTexture(this.metalTex)
@@ -156,6 +159,21 @@ export class M300DroneModel {
     cam.position.set(0, -0.22, 0.38)
     cam.castShadow = true
     this.gimbalPitch.add(cam)
+    this.attachInspectionRig()
+  }
+
+  /** 供 MissionRunner 离屏渲染：与云台俯仰/偏航联动 */
+  getInspectionViewRig(): THREE.Object3D {
+    return this.inspectionViewRig
+  }
+
+  private attachInspectionRig(): void {
+    if (this.inspectionViewRig.parent) {
+      this.inspectionViewRig.parent.remove(this.inspectionViewRig)
+    }
+    this.inspectionViewRig.position.set(0, -0.22, 0.42)
+    this.inspectionViewRig.rotation.set(0, -Math.PI / 2, 0)
+    this.gimbalPitch.add(this.inspectionViewRig)
   }
 
   setPose(position: THREE.Vector3, yawRad: number, pitchRad = 0, rollRad = 0): void {

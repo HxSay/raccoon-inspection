@@ -20,13 +20,15 @@ export function sceneToGps(x: number, y: number, z: number): { latitude: number;
 }
 
 /**
- * 生成拍照元数据（含云台角），不保存真实图像二进制。
+ * 生成拍照元数据（含云台角）；可选附带仿真离屏截图 data URL。
  */
 export function buildPhotoMeta(args: {
   waypointIndex: number
   position: { x: number; y: number; z: number }
   gimbalPitchDeg: number
   gimbalYawDeg: number
+  /** 仿真相机离屏渲染 JPEG data URL */
+  imageDataUrl?: string
 }): PhotoCaptureMeta {
   const gps = sceneToGps(args.position.x, args.position.y, args.position.z)
   return {
@@ -38,7 +40,8 @@ export function buildPhotoMeta(args: {
       pitchDeg: args.gimbalPitchDeg,
       yawDeg: args.gimbalYawDeg,
       rollDeg: 0
-    }
+    },
+    ...(args.imageDataUrl ? { imageDataUrl: args.imageDataUrl } : {})
   }
 }
 

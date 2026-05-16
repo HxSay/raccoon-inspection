@@ -30,6 +30,7 @@ import {
   saveSceneState,
   type ScenePersistTab
 } from '@/sim/scenePersistence'
+import { captureSceneFromInspectionRig, disposeInspectionCaptureRenderer } from '@/sim/droneCameraCapture'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -112,6 +113,7 @@ const reportTableRows = computed(() => {
     const ai = r.aiResults[i]
     return {
       id: p.id,
+      thumb: p.imageDataUrl ?? '',
       wp: p.waypointIndex,
       ai: ai ? `${ai.label} (${(ai.confidence * 100).toFixed(1)}%)` : '—',
       defect: ai ? (ai.hasDefect ? '疑似缺陷' : '未见缺陷') : '—'
@@ -146,7 +148,7 @@ let sceneObjectEditor: SceneObjectEditor | null = null
 const viewHint = computed(() => {
   const edit =
     sceneEditEnabled.value && (sceneTab.value === 'patrol' || sceneTab.value === 'substation' || sceneTab.value === 'thermal')
-      ? ' 编辑：Shift+左键点选，拖轴平移；顶部面板可改数值。删除已自动保存；平移后请点「保存场景」写入本机。'
+      ? ' 编辑：Shift+左键点选，拖轴平移；顶部可改数值。删除已自动保存；平移后请点「保存场景」。任务在右侧栏。'
       : ''
   if (sceneTab.value === 'substation') {
     return '变电站场景 · 地面仰视 · 左键环视 · 滚轮缩放（与输电场地独立）' + edit
@@ -363,6 +365,14 @@ function rebuildMissionRunner() {
                 patrolNestLanded = 0
               }
             }
+          },
+          captureInspectionPhoto: () => {
+            const sc = sceneBundle?.scene
+            const agent = patrolDrones[i]
+            if (!sc || !agent) return null
+            const rig = agent.getInspectionViewRig?.()
+            if (!rig) return null
+            return captureSceneFromInspectionRig(sc, rig, { hideRoots: [agent.root] })
           }
         })
       )
@@ -390,7 +400,13 @@ function rebuildMissionRunner() {
         visualHooks: buildVisualHooks(),
         fetchPlannedPath: fetchThermalPlantCloudPath,
         vehicleClass: 'ugv',
-        djiAircraftId: 'QUADRUPED_INSPECTION'
+        djiAircraftId: 'QUADRUPED_INSPECTION',
+        captureInspectionPhoto: () => {
+          const sc = thermalBundle?.scene
+          if (!sc || !robotDog) return null
+          const rig = robotDog.getInspectionViewRig()
+          return captureSceneFromInspectionRig(sc, rig, { hideRoots: [robotDog.root] })
+        }
       })
     )
   }
@@ -606,6 +622,7 @@ function initThree(): () => void {
     nest = null
     terminal?.dispose()
     terminal = null
+    disposeInspectionCaptureRenderer()
     renderer?.dispose()
     renderer = null
     camera = null
@@ -737,6 +754,10 @@ async function onPersistCommand(cmd: 'current' | 'all') {
   }
 }
 
+function handlePersistDropdown(cmd: string) {
+  if (cmd === 'current' || cmd === 'all') void onPersistCommand(cmd)
+}
+
 function applySceneEditForm() {
   sceneObjectEditor?.applyFromForm({
     x: editForm.x,
@@ -770,189 +791,211 @@ function try65535Demo() {
 </script>
 
 <template>
-  <div
-    class="industrial-app flex h-full w-full min-h-0 flex-col border-t border-[var(--ia-border)] text-[#c8d4e0] md:flex-row"
-  >
-    <aside
-      class="order-2 flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-2.5 md:order-1 md:w-80 md:border-r lg:w-[22rem]"
-    >
-      <header class="border-b border-[var(--ia-border)] pb-1.5 font-mono text-xs tracking-wide text-[var(--ia-accent)]">
-        RACCOON EDGE SIM / 边缘巡检仿真
-      </header>
-
-      <section v-if="sceneTab === 'patrol'" class="rounded border border-[var(--ia-border)] bg-[#0c141c] px-2 py-1.5">
-        <div class="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">场景视角</div>
-        <el-radio-group v-model="viewMode" size="small" class="ia-radio-tight flex flex-col gap-0.5 font-mono">
-          <el-radio value="aerial">鸟瞰（默认轨道）</el-radio>
-          <el-radio value="ground">地面观察（人眼高度）</el-radio>
-        </el-radio-group>
-        <p class="mt-1 text-[9px] leading-tight text-[var(--ia-muted)]">
-          切至地面时为固定站位；从鸟瞰进入地面会记住当前机位，切回鸟瞰时恢复。
-        </p>
-      </section>
-
-      <section class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
-        <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">边缘控制终端</div>
-        <div class="grid grid-cols-2 gap-2 font-mono text-[11px]">
-          <div>
-            <span class="text-[var(--ia-muted)]">CPU</span>
-            <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.cpuPercent.toFixed(1) }} %</div>
-          </div>
-          <div>
-            <span class="text-[var(--ia-muted)]">存储</span>
-            <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.storagePercent.toFixed(1) }} %</div>
-          </div>
-          <div class="col-span-2">
-            <span class="text-[var(--ia-muted)]">网络</span>
-            <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.networkMbps.toFixed(1) }} Mbps</div>
-            <div class="text-[10px] text-[#6a8aa8]">{{ edgeMetrics.networkLabel }}</div>
-          </div>
-        </div>
-      </section>
-
-      <el-card shadow="never" class="ia-card">
-        <template #header>场景物体编辑</template>
-        <el-switch v-model="sceneEditEnabled" size="small" active-text="启用" inactive-text="关闭" />
-        <p class="mt-1 text-[9px] leading-tight text-[var(--ia-muted)]">
-          <b>Shift+左键</b>点选当前 Tab 的 <code class="text-[var(--ia-accent)]">world</code> 下网格；拖红绿蓝轴平移。删除会释放几何体（共享材质且带 skipDispose 的物体请谨慎删）。
-        </p>
-        <template v-if="sceneEditorSnap">
-          <div class="mt-1.5 truncate font-mono text-[10px] text-[var(--ia-accent)]" :title="sceneEditorSnap.label">
-            {{ sceneEditorSnap.label }}
-          </div>
-          <div class="mt-2 grid grid-cols-3 gap-1 font-mono">
-            <div>
-              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">X</div>
-              <el-input-number v-model="editForm.x" :step="0.5" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div>
-              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Y</div>
-              <el-input-number v-model="editForm.y" :step="0.5" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div>
-              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Z</div>
-              <el-input-number v-model="editForm.z" :step="0.5" size="small" controls-position="right" class="!w-full" />
-            </div>
-          </div>
-          <div class="mt-1.5">
-            <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">绕 Y 旋转（°）</div>
-            <el-input-number v-model="editForm.rotYdeg" :step="5" size="small" controls-position="right" class="!w-full" />
-          </div>
-          <div class="mt-1.5 grid grid-cols-3 gap-1">
-            <div>
-              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Sx</div>
-              <el-input-number v-model="editForm.sx" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div>
-              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Sy</div>
-              <el-input-number v-model="editForm.sy" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
-            </div>
-            <div>
-              <div class="mb-0.5 text-[9px] text-[var(--ia-muted)]">Sz</div>
-              <el-input-number v-model="editForm.sz" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
-            </div>
-          </div>
-          <div class="mt-2 flex flex-wrap gap-1.5">
-            <el-button type="primary" size="small" class="!font-mono" @click="applySceneEditForm">应用数值</el-button>
-            <el-button size="small" class="!font-mono" @click="clearSceneSelection">取消选中</el-button>
-            <el-button type="danger" size="small" plain class="!font-mono" @click="deleteSceneSelection">删除物体</el-button>
-          </div>
-        </template>
-      </el-card>
-
-      <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
-        <template #header>任务状态</template>
-        <p class="mb-2 font-mono text-[11px] leading-relaxed text-[var(--ia-muted)]">{{ taskStatus }}</p>
-        <div class="flex flex-wrap gap-2">
-          <el-button type="primary" size="small" class="!font-mono" @click="startMission">启动巡检</el-button>
-          <el-button size="small" class="!font-mono" @click="togglePause">暂停 / 继续</el-button>
-          <el-button size="small" class="!font-mono" @click="resetMission">重置</el-button>
-        </div>
-      </el-card>
-
-      <el-collapse v-if="missionJson" class="ia-collapse ia-collapse-json">
-        <el-collapse-item title="Waypoint 任务 JSON" name="1">
-          <pre class="max-h-40 overflow-auto p-1 font-mono text-[10px] leading-snug text-[#6ecf9b]">{{ missionJson }}</pre>
-        </el-collapse-item>
-      </el-collapse>
-
-      <el-card shadow="never" class="ia-card ia-card-deploy-tight">
-        <template #header>部署模式</template>
-        <el-radio-group v-model="deployMode" size="small" class="ia-radio-tight flex flex-col gap-1 font-mono">
-          <el-radio value="groundStation">地面站（+100ms RTT）</el-radio>
-          <el-radio value="onboard">机载（+20ms RTT）</el-radio>
-        </el-radio-group>
-        <p class="mt-1 text-[9px] leading-tight text-[var(--ia-muted)]">
-          云端固定 200ms + 模式附加延迟（<code class="text-[var(--ia-accent)]">constants.ts</code>）
-        </p>
-      </el-card>
-
-      <el-card shadow="never" class="ia-card">
-        <template #header>异常注入</template>
-        <el-switch v-model="simulateDisconnect" active-text="断网" @change="applyNetworkSim" />
-        <p class="mt-1 text-[10px] text-[var(--ia-muted)]">断网时遥测缓存，恢复后补报</p>
-        <el-divider class="!my-2 !border-[var(--ia-border)]" />
-        <el-switch v-model="simulateLowBattery" active-text="低电量起飞" />
-        <p class="mt-1 text-[10px] text-[var(--ia-muted)]">自检 15% →「电量不足，无法起飞!」</p>
-        <el-divider class="!my-2 !border-[var(--ia-border)]" />
-        <el-switch v-model="simulateRtkLost" active-text="非 RTK 固定解" />
-        <p class="mt-1 text-[10px] text-[var(--ia-muted)]">mode≠2 →「未切换到RTK定位…」</p>
-      </el-card>
-
-      <el-card shadow="never" class="ia-card">
-        <template #header>航点上限（65535）</template>
-        <el-button size="small" class="!font-mono" @click="try65535Demo">触发校验</el-button>
-      </el-card>
-    </aside>
-
-    <main class="relative order-1 min-h-[44vh] flex-1 border-[var(--ia-border)] bg-black md:order-2 md:min-h-0 md:border-x">
-      <div
-        class="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 rounded border border-[var(--ia-border)] bg-[#0a1018]/95 px-1 py-0.5 shadow-md backdrop-blur-sm"
-      >
-        <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg flex flex-wrap justify-center font-mono">
+  <div class="industrial-app flex h-full w-full min-h-0 flex-col border-t border-[var(--ia-border)] text-[#c8d4e0]">
+    <header class="shrink-0 border-b border-[var(--ia-border)] bg-[var(--ia-panel)] px-2 py-2">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <div class="hidden font-mono text-[10px] tracking-wide text-[var(--ia-accent)] sm:block">RACCOON EDGE SIM</div>
+        <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg flex flex-wrap font-mono">
           <el-radio-button value="patrol">输电巡检场地</el-radio-button>
           <el-radio-button value="substation">变电站场景</el-radio-button>
           <el-radio-button value="thermal">火电站巡检</el-radio-button>
         </el-radio-group>
+
+        <template v-if="sceneTab === 'patrol'">
+          <el-radio-group v-model="viewMode" size="small" class="ia-radio-tight flex flex-wrap gap-0.5 font-mono">
+            <el-radio-button value="aerial">鸟瞰</el-radio-button>
+            <el-radio-button value="ground">地面</el-radio-button>
+          </el-radio-group>
+        </template>
+
+        <el-divider direction="vertical" class="ia-toolbar-divider" />
+
+        <span class="hidden font-mono text-[9px] uppercase tracking-wider text-[var(--ia-muted)] md:inline">场景 / 地图</span>
+
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="font-mono text-[10px] text-[var(--ia-muted)]">模型编辑</span>
+          <el-switch v-model="sceneEditEnabled" size="small" />
+          <el-button size="small" class="!font-mono" @click="saveSceneLayout">保存场景</el-button>
+          <el-dropdown trigger="click" @command="handlePersistDropdown">
+            <el-button size="small" class="!font-mono"> 恢复默认 <span class="opacity-70">▾</span> </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="current">仅当前场景…</el-dropdown-item>
+                <el-dropdown-item command="all" divided>全部场景…</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-button size="small" class="!font-mono" @click="simDrawerOpen = true">仿真控制台</el-button>
+        </div>
       </div>
-      <canvas ref="canvasRef" class="h-full w-full touch-none" />
+
       <div
-        class="pointer-events-none absolute bottom-2 left-2 rounded border border-[var(--ia-border)] bg-black/70 px-2 py-1 font-mono text-[10px] text-[var(--ia-muted)]"
+        v-if="sceneEditEnabled && sceneEditorSnap"
+        class="mt-2 flex flex-col gap-2 border-t border-[var(--ia-border)] pt-2 lg:flex-row lg:items-end lg:gap-3"
       >
-        {{ viewHint }}
+        <div class="truncate font-mono text-[10px] text-[var(--ia-accent)]" :title="sceneEditorSnap.label">{{ sceneEditorSnap.label }}</div>
+        <div class="flex flex-1 flex-wrap items-end gap-2">
+          <div class="grid w-full min-w-0 grid-cols-3 gap-2 sm:flex sm:flex-1 sm:flex-wrap">
+            <div class="min-w-0 sm:w-[5.5rem]">
+              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">X</div>
+              <el-input-number v-model="editForm.x" :step="0.5" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div class="min-w-0 sm:w-[5.5rem]">
+              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Y</div>
+              <el-input-number v-model="editForm.y" :step="0.5" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div class="min-w-0 sm:w-[5.5rem]">
+              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Z</div>
+              <el-input-number v-model="editForm.z" :step="0.5" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div class="col-span-3 min-w-0 sm:col-span-1 sm:w-[7.5rem]">
+              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">绕 Y（°）</div>
+              <el-input-number v-model="editForm.rotYdeg" :step="5" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div class="min-w-0 sm:w-[4.5rem]">
+              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Sx</div>
+              <el-input-number v-model="editForm.sx" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div class="min-w-0 sm:w-[4.5rem]">
+              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Sy</div>
+              <el-input-number v-model="editForm.sy" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
+            </div>
+            <div class="min-w-0 sm:w-[4.5rem]">
+              <div class="mb-0.5 font-mono text-[9px] text-[var(--ia-muted)]">Sz</div>
+              <el-input-number v-model="editForm.sz" :min="0.05" :step="0.05" size="small" controls-position="right" class="!w-full" />
+            </div>
+          </div>
+          <div class="flex shrink-0 flex-wrap gap-1.5">
+            <el-button type="primary" size="small" class="!font-mono" @click="applySceneEditForm">应用并保存位姿</el-button>
+            <el-button size="small" class="!font-mono" @click="clearSceneSelection">取消选中</el-button>
+            <el-button type="danger" size="small" plain class="!font-mono" @click="deleteSceneSelection">删除物体</el-button>
+          </div>
+        </div>
+        <p class="font-mono text-[9px] leading-tight text-[var(--ia-muted)] lg:max-w-xs">
+          Shift+左键点选 <code class="text-[var(--ia-accent)]">world</code> 下可编辑网格；拖轴平移后请点「保存场景」。删除会立刻写入本机并释放几何体。
+        </p>
       </div>
-    </main>
+    </header>
 
-    <aside
-      class="order-3 flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-3 md:w-72 md:border-l"
-    >
-      <div class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">无人机遥测</div>
-      <el-descriptions :column="1" border size="small" class="ia-desc">
-        <el-descriptions-item label="X / m">{{ telemetry?.position.x.toFixed(1) ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="Y / m">{{ telemetry?.position.y.toFixed(1) ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="Z / m">{{ telemetry?.position.z.toFixed(1) ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="高度">{{ telemetry?.altitudeM.toFixed(1) ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="电量 %">{{ telemetry?.batteryPercent.toFixed(1) ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="速度">{{ telemetry?.speedMps.toFixed(1) ?? '—' }} m/s</el-descriptions-item>
-        <el-descriptions-item label="RTK">{{ telemetry?.rtkMode ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="进度">{{ telemetry ? (telemetry.missionProgress * 100).toFixed(0) + '%' : '—' }}</el-descriptions-item>
-        <el-descriptions-item label="相位">{{ telemetry?.phase ?? '—' }}</el-descriptions-item>
-      </el-descriptions>
-      <el-card shadow="never" class="ia-card">
-        <template #header>云端接收</template>
-        <p class="font-mono text-[10px] text-[var(--ia-muted)]">{{ 1000 / TELEMETRY_INTERVAL_MS }} Hz</p>
-        <p class="font-mono text-sm">COUNT <b class="text-[var(--ia-accent)]">{{ cloudReceiveCount }}</b></p>
-        <p class="font-mono text-[10px] text-amber-600/90">BUF {{ offlineBufferHint }}</p>
-      </el-card>
-    </aside>
+    <div class="flex min-h-[44vh] flex-1 flex-col md:min-h-0 md:flex-row">
+      <main class="relative min-h-[44vh] flex-1 border-[var(--ia-border)] bg-black md:min-h-0 md:border-x">
+        <canvas ref="canvasRef" class="h-full w-full touch-none" />
+        <div
+          class="pointer-events-none absolute bottom-2 left-2 max-w-[min(96%,28rem)] rounded border border-[var(--ia-border)] bg-black/70 px-2 py-1 font-mono text-[10px] text-[var(--ia-muted)]"
+        >
+          {{ viewHint }}
+        </div>
+      </main>
 
-    <el-dialog
-      v-model="reportOpen"
-      title="巡检报告"
-      class="ia-dialog"
-      width="min(92vw, 760px)"
-      destroy-on-close
-    >
+      <aside
+        class="flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-3 md:w-72 md:border-l"
+      >
+        <div class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">无人机控制</div>
+        <p class="font-mono text-[9px] leading-tight text-[var(--ia-muted)]">任务与遥测在侧栏；场景切换与模型编辑在顶部。</p>
+
+        <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
+          <template #header>任务控制</template>
+          <div class="flex flex-wrap gap-2">
+            <el-button type="primary" size="small" class="!font-mono" @click="startMission">启动巡检</el-button>
+            <el-button size="small" class="!font-mono" @click="togglePause">暂停 / 继续</el-button>
+            <el-button size="small" class="!font-mono" @click="resetMission">重置</el-button>
+          </div>
+        </el-card>
+        <el-card v-else shadow="never" class="ia-card">
+          <template #header>任务控制</template>
+          <p class="font-mono text-[10px] leading-relaxed text-[var(--ia-muted)]">当前为变电站浏览场景，无航线任务仿真。</p>
+        </el-card>
+
+        <div class="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">遥测</div>
+        <el-descriptions :column="1" border size="small" class="ia-desc">
+          <el-descriptions-item label="X / m">{{ telemetry?.position.x.toFixed(1) ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="Y / m">{{ telemetry?.position.y.toFixed(1) ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="Z / m">{{ telemetry?.position.z.toFixed(1) ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="高度">{{ telemetry?.altitudeM.toFixed(1) ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="电量 %">{{ telemetry?.batteryPercent.toFixed(1) ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="速度">{{ telemetry?.speedMps.toFixed(1) ?? '—' }} m/s</el-descriptions-item>
+          <el-descriptions-item label="RTK">{{ telemetry?.rtkMode ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="进度">{{ telemetry ? (telemetry.missionProgress * 100).toFixed(0) + '%' : '—' }}</el-descriptions-item>
+          <el-descriptions-item label="相位">{{ telemetry?.phase ?? '—' }}</el-descriptions-item>
+        </el-descriptions>
+        <el-card shadow="never" class="ia-card">
+          <template #header>云端接收</template>
+          <p class="font-mono text-[10px] text-[var(--ia-muted)]">{{ 1000 / TELEMETRY_INTERVAL_MS }} Hz</p>
+          <p class="font-mono text-sm">COUNT <b class="text-[var(--ia-accent)]">{{ cloudReceiveCount }}</b></p>
+          <p class="font-mono text-[10px] text-amber-600/90">BUF {{ offlineBufferHint }}</p>
+        </el-card>
+        <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
+          <template #header>任务状态</template>
+          <p class="mb-2 font-mono text-[11px] leading-relaxed text-[var(--ia-muted)]">{{ taskStatus }}</p>
+        </el-card>
+      </aside>
+    </div>
+
+    <el-drawer v-model="simDrawerOpen" title="仿真控制台" direction="ltr" size="min(380px, 92vw)" class="ia-drawer-shell">
+      <div class="flex flex-col gap-3 pb-4 font-mono text-[11px] text-[var(--ia-muted)]">
+        <section class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
+          <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider">边缘终端负载</div>
+          <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div>
+              <span class="text-[var(--ia-muted)]">CPU</span>
+              <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.cpuPercent.toFixed(1) }} %</div>
+            </div>
+            <div>
+              <span class="text-[var(--ia-muted)]">存储</span>
+              <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.storagePercent.toFixed(1) }} %</div>
+            </div>
+            <div class="col-span-2">
+              <span class="text-[var(--ia-muted)]">网络</span>
+              <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.networkMbps.toFixed(1) }} Mbps</div>
+              <div class="text-[10px] text-[#6a8aa8]">{{ edgeMetrics.networkLabel }}</div>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="sceneTab === 'patrol'" class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
+          <div class="mb-1 text-[10px] font-semibold uppercase tracking-wider">场景视角</div>
+          <el-radio-group v-model="viewMode" size="small" class="ia-radio-tight flex flex-col gap-0.5">
+            <el-radio value="aerial">鸟瞰（默认轨道）</el-radio>
+            <el-radio value="ground">地面观察（人眼高度）</el-radio>
+          </el-radio-group>
+          <p class="mt-1 text-[9px] leading-tight">切至地面时为固定站位；从鸟瞰进入地面会记住当前机位，切回鸟瞰时恢复。</p>
+        </section>
+
+        <el-card shadow="never" class="ia-card">
+          <template #header>部署模式</template>
+          <el-radio-group v-model="deployMode" size="small" class="ia-radio-tight flex flex-col gap-1">
+            <el-radio value="groundStation">地面站（+100ms RTT）</el-radio>
+            <el-radio value="onboard">机载（+20ms RTT）</el-radio>
+          </el-radio-group>
+          <p class="mt-1 text-[9px] leading-tight">云端固定 200ms + 模式附加延迟（<code class="text-[var(--ia-accent)]">constants.ts</code>）</p>
+        </el-card>
+
+        <el-card shadow="never" class="ia-card">
+          <template #header>异常注入</template>
+          <el-switch v-model="simulateDisconnect" active-text="断网" @change="applyNetworkSim" />
+          <p class="mt-1 text-[10px]">断网时遥测缓存，恢复后补报</p>
+          <el-divider class="!my-2 !border-[var(--ia-border)]" />
+          <el-switch v-model="simulateLowBattery" active-text="低电量起飞" />
+          <p class="mt-1 text-[10px]">自检 15% →「电量不足，无法起飞!」</p>
+          <el-divider class="!my-2 !border-[var(--ia-border)]" />
+          <el-switch v-model="simulateRtkLost" active-text="非 RTK 固定解" />
+          <p class="mt-1 text-[10px]">mode≠2 →「未切换到RTK定位…」</p>
+        </el-card>
+
+        <el-card shadow="never" class="ia-card">
+          <template #header>航点上限（65535）</template>
+          <el-button size="small" class="!font-mono" @click="try65535Demo">触发校验</el-button>
+        </el-card>
+
+        <el-collapse v-if="missionJson" class="ia-collapse ia-collapse-json">
+          <el-collapse-item title="Waypoint 任务 JSON" name="1">
+            <pre class="max-h-48 overflow-auto p-1 text-[10px] leading-snug text-[#6ecf9b]">{{ missionJson }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+    </el-drawer>
+
+    <el-dialog v-model="reportOpen" title="巡检报告" class="ia-dialog" width="min(92vw, 760px)" destroy-on-close>
       <template v-if="lastReport">
         <el-descriptions :column="2" border size="small" class="mb-3 font-mono">
           <el-descriptions-item label="时长 / s">{{ lastReport.durationSec.toFixed(1) }}</el-descriptions-item>
@@ -960,12 +1003,27 @@ function try65535Demo() {
           <el-descriptions-item label="照片">{{ lastReport.photos.length }}</el-descriptions-item>
           <el-descriptions-item label="遥测条数">{{ lastReport.telemetrySent }}</el-descriptions-item>
         </el-descriptions>
-        <div class="mb-2 text-[10px] text-[var(--ia-muted)]">元数据含伪 GPS / 云台角；原图不上云。</div>
-        <el-table :data="reportTableRows" stripe size="small" max-height="280" class="font-mono">
-          <el-table-column prop="id" label="ID" min-width="130" show-overflow-tooltip />
-          <el-table-column prop="wp" label="WP" width="52" />
-          <el-table-column prop="ai" label="AI" min-width="110" />
-          <el-table-column prop="defect" label="结论" width="92" />
+        <div class="mb-2 text-[10px] text-[var(--ia-muted)]">
+          关键航点画面为仿真相机离屏渲染截图；元数据含伪 GPS / 云台角。业务上原图不上云。
+        </div>
+        <el-table :data="reportTableRows" stripe size="small" max-height="360" class="font-mono">
+          <el-table-column label="巡检画面" width="156" align="center">
+            <template #default="{ row }">
+              <el-image
+                v-if="row.thumb"
+                :src="row.thumb"
+                :preview-src-list="[row.thumb]"
+                fit="cover"
+                class="report-thumb"
+                preview-teleported
+              />
+              <span v-else class="text-[var(--ia-muted)]">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="id" label="日志 ID" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="wp" label="WP" width="48" />
+          <el-table-column prop="ai" label="AI" min-width="100" />
+          <el-table-column prop="defect" label="结论" width="88" />
         </el-table>
       </template>
     </el-dialog>
@@ -1049,9 +1107,42 @@ function try65535Demo() {
   --el-dialog-bg-color: #0f1824;
   --el-dialog-border-color: var(--ia-border);
 }
+.report-thumb {
+  width: 132px;
+  height: 74px;
+  border-radius: 2px;
+  border: 1px solid var(--ia-border);
+}
+.report-thumb :deep(.el-image__inner) {
+  width: 132px;
+  height: 74px;
+}
 :deep(.scene-tab-rg .el-radio-button__inner) {
   font-family: ui-monospace, monospace;
   font-size: 11px;
   padding: 5px 10px;
+}
+
+:deep(.ia-toolbar-divider.el-divider--vertical) {
+  margin: 0 4px;
+  height: 22px;
+  align-self: center;
+  border-color: var(--ia-border);
+}
+
+:deep(.ia-drawer-shell) {
+  --el-drawer-bg-color: #0f1824;
+}
+:deep(.ia-drawer-shell .el-drawer__header) {
+  margin-bottom: 8px;
+  padding: 12px 14px 0;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ia-muted);
+  border-bottom: 1px solid var(--ia-border);
+}
+:deep(.ia-drawer-shell .el-drawer__body) {
+  padding: 10px 12px 14px;
+  background: #0a1018;
 }
 </style>

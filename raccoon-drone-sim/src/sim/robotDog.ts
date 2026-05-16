@@ -6,6 +6,8 @@ import * as THREE from 'three'
 export class RobotDogModel {
   readonly root: THREE.Group
   private readonly headGroup: THREE.Group
+  /** 巡检视线：局部 +Z 为拍摄方向，挂于头部 */
+  private readonly inspectionViewRig = new THREE.Object3D()
   private readonly legs: { upper: THREE.Mesh; lower: THREE.Mesh; side: number; phase: number }[] = []
   private walkActive = false
   private walkPhase = 0
@@ -54,6 +56,10 @@ export class RobotDogModel {
     eyeR.position.z = -0.12
     this.headGroup.add(eyeR)
 
+    this.inspectionViewRig.position.set(0.2, 0.06, 0)
+    this.inspectionViewRig.rotation.set(0, -Math.PI / 2, 0)
+    this.headGroup.add(this.inspectionViewRig)
+
     const hipY = 0.38
     const corners: [number, number][] = [
       [0.38, 0.22],
@@ -78,6 +84,10 @@ export class RobotDogModel {
     this.root.updateMatrixWorld(true)
     const box = new THREE.Box3().setFromObject(this.root)
     this.soleMinY = box.min.y
+  }
+
+  getInspectionViewRig(): THREE.Object3D {
+    return this.inspectionViewRig
   }
 
   setPose(position: THREE.Vector3, yawRad: number, pitchRad = 0, rollRad = 0): void {
