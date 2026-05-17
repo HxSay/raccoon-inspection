@@ -107,7 +107,7 @@ function onMoreCmd(cmd: string) {
 
 <template>
   <div
-    class="flex flex-wrap items-center gap-x-1 gap-y-1 border-b border-[var(--ia-border)] bg-[#0a1018]/95 px-2 py-1 font-mono text-[10px] text-[var(--ia-muted)]"
+    class="edit-toolbar-tools flex flex-wrap items-center justify-center gap-x-1 gap-y-1 font-mono text-[10px] text-[var(--ia-muted)]"
   >
     <el-dropdown trigger="click" @command="onTransformCmd">
       <el-button size="small" type="default" class="!font-mono">
@@ -165,11 +165,5 @@ function onMoreCmd(cmd: string) {
       </template>
     </el-dropdown>
 
-    <span
-      class="ml-auto max-w-[min(100%,28rem)] truncate text-[9px] opacity-75"
-      title="Ctrl+Z / Ctrl+Y · Q 切换世界/局部 · WASD 平移视角 · Del 删除 · Ctrl 多选"
-    >
-      Ctrl+Z/Y · Q · WASD · Del · Ctrl 多选
-    </span>
   </div>
 </template>

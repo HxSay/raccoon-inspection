@@ -31,7 +31,7 @@ function del() {
 </script>
 
 <template>
-  <div class="editor-props flex h-full min-h-0 w-72 shrink-0 flex-col border-l border-[var(--ia-border)] bg-[var(--ia-panel)] p-2 text-[11px]">
+  <div class="editor-props flex min-h-0 w-full flex-1 flex-col border-[var(--ia-border)] bg-[var(--ia-panel)] p-2 text-[11px]">
     <div class="mb-2 font-mono text-[10px] uppercase tracking-wide text-[var(--ia-accent)]">属性</div>
     <template v-if="uiState?.props">
       <div class="mb-1 text-[9px] text-[var(--ia-muted)]">{{ form.label }} · {{ (form.ids?.length ?? 0) }} 项</div>

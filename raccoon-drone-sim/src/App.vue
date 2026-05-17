@@ -49,6 +49,7 @@ import type { EditorUiState } from '@/editor/types'
 import EditorOutliner from '@/components/EditorOutliner.vue'
 import EditorToolbar from '@/components/EditorToolbar.vue'
 import EditorProperties from '@/components/EditorProperties.vue'
+import SimControlPanel from '@/components/SimControlPanel.vue'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 /** 包裹 canvas：flex 子项里用绝对定位填满，避免 clientWidth 与缓冲区不一致导致半屏黑 */
@@ -156,7 +157,7 @@ const sceneTab = ref<'patrol' | 'substation' | 'thermal'>('patrol')
 
 /** 3D 场景编辑器：默认开启；关闭后恢复旧 Shift 点选与无人机侧栏 */
 const sceneEditEnabled = ref(true)
-const simDrawerOpen = ref(false)
+const outlinerDrawerOpen = ref(false)
 const sceneEditorSnap = shallowRef<SceneObjectEditorSnapshot | null>(null)
 const editForm = reactive({
   x: 0,
@@ -258,7 +259,7 @@ const editorUiState = shallowRef<EditorUiState | null>(null)
 const viewHint = computed(() => {
   const edit =
     sceneEditEnabled.value && (sceneTab.value === 'patrol' || sceneTab.value === 'substation' || sceneTab.value === 'thermal')
-      ? ' 编辑：Shift+左键点选，拖轴平移；顶部可改数值。删除已自动保存；平移后请点「保存场景」。任务在右侧栏。'
+      ? ' 编辑：顶部工具栏（居中）· 场景对象在顶部抽屉 · 右侧属性与任务控制。'
       : ''
   if (sceneTab.value === 'substation') {
     return '变电站场景 · 地面仰视 · 左键环视 · 滚轮缩放（与输电场地独立）' + edit
@@ -341,7 +342,6 @@ watch(sceneEditEnabled, (on) => {
   sceneObjectEditor?.setEnabled(!on)
   sceneEditor3dRef.value?.setActive(on)
   if (on) rebindEditor3dWorld()
-  missionRunners.forEach((m) => m.setPaused(on))
   applyEditorOrbitStyle(on)
 }, { immediate: true })
 
@@ -617,7 +617,6 @@ function rebuildMissionRunner() {
       })
     )
   }
-  missionRunners.forEach((m) => m.setPaused(sceneEditEnabled.value))
 }
 
 watch(
@@ -900,10 +899,6 @@ onBeforeUnmount(() => {
 })
 
 async function startMission() {
-  if (sceneEditEnabled.value) {
-    ElMessage.warning('请先关闭「模型编辑」再运行任务仿真')
-    return
-  }
   if (!missionRunners.length) {
     ElMessage.warning('当前场景不支持任务仿真（请切换到输电巡检或火电站）')
     return
@@ -1009,7 +1004,6 @@ async function onPersistCommand(cmd: 'current' | 'all') {
 function onSceneMenuCommand(cmd: string) {
   if (cmd === 'save') saveSceneLayout()
   else if (cmd === 'reset-current' || cmd === 'reset-all') void onPersistCommand(cmd === 'reset-current' ? 'current' : 'all')
-  else if (cmd === 'sim') simDrawerOpen.value = true
 }
 
 function onViewModeCommand(cmd: string) {
@@ -1093,33 +1087,10 @@ function try65535Demo() {
 
 <template>
   <div class="industrial-app flex h-full w-full min-h-0 flex-col border-t border-[var(--ia-border)] text-[#c8d4e0]">
-    <header class="shrink-0 border-b border-[var(--ia-border)] bg-[var(--ia-panel)] px-2 py-1.5">
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <div class="hidden shrink-0 font-mono text-[10px] tracking-wide text-[var(--ia-accent)] sm:block">RACCOON EDGE SIM</div>
-        <el-radio-group v-model="sceneTab" size="small" class="scene-tab-rg flex flex-wrap font-mono">
-          <el-radio-button value="patrol">输电巡检场地</el-radio-button>
-          <el-radio-button value="substation">变电站场景</el-radio-button>
-          <el-radio-button value="thermal">火电站巡检</el-radio-button>
-        </el-radio-group>
-
-        <el-dropdown v-if="sceneTab === 'patrol'" trigger="click" class="font-mono" @command="onViewModeCommand">
-          <el-button size="small" type="default" class="!font-mono">
-            视角 · {{ viewMode === 'aerial' ? '鸟瞰' : '地面' }} <span class="ml-0.5 opacity-60">▾</span>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="aerial">鸟瞰</el-dropdown-item>
-              <el-dropdown-item command="ground">地面</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-
-        <el-divider direction="vertical" class="ia-toolbar-divider" />
-
-        <div class="flex flex-wrap items-center gap-1.5">
-          <span class="font-mono text-[10px] text-[var(--ia-muted)]">模型编辑</span>
-          <el-switch v-model="sceneEditEnabled" size="small" />
-          <el-dropdown trigger="click" class="font-mono" @command="onSceneMenuCommand">
+    <header class="edit-toolbar-header shrink-0 border-b border-[var(--ia-border)] bg-[#0a1018]/95">
+      <div class="edit-toolbar-row grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-2 py-1">
+        <div class="toolbar-slot-left flex min-w-0 flex-wrap items-center gap-1 justify-self-start">
+          <el-dropdown trigger="click" class="shrink-0 font-mono" @command="onSceneMenuCommand">
             <el-button size="small" type="default" class="!font-mono">
               场景菜单 <span class="ml-0.5 opacity-60">▾</span>
             </el-button>
@@ -1128,23 +1099,61 @@ function try65535Demo() {
                 <el-dropdown-item command="save">保存场景</el-dropdown-item>
                 <el-dropdown-item command="reset-current" divided>恢复默认（仅当前场景）…</el-dropdown-item>
                 <el-dropdown-item command="reset-all">恢复默认（全部场景）…</el-dropdown-item>
-                <el-dropdown-item command="sim" divided>仿真控制台</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
+          <el-button size="small" type="default" class="!font-mono" @click="outlinerDrawerOpen = true">
+            场景对象
+          </el-button>
         </div>
+        <EditorToolbar :editor="sceneEditor3dRef" :ui="editorUiState" class="edit-toolbar-inner justify-self-center" />
+        <span
+          class="toolbar-slot-right hidden max-w-[14rem] truncate justify-self-end text-right font-mono text-[9px] text-[var(--ia-muted)] opacity-75 sm:inline"
+          title="Ctrl+Z / Ctrl+Y · Q 切换世界/局部 · WASD 平移视角 · Del 删除 · Ctrl 多选"
+        >
+          Ctrl+Z/Y · Q · WASD · Del
+        </span>
       </div>
-
-      <EditorToolbar v-if="sceneEditEnabled" :editor="sceneEditor3dRef" :ui="editorUiState" />
     </header>
 
-    <!-- 勿使用 md:min-h-0：会把本行 min-height 压成 0，在 flex 下易导致 canvas 高度为 0、画面全黑 -->
-    <div class="flex min-h-[44vh] flex-1 flex-col md:flex-row md:min-h-[min(100%,36rem)]">
-      <EditorOutliner v-if="sceneEditEnabled" :editor="sceneEditor3dRef" :ui="editorUiState" />
+    <el-drawer
+      v-model="outlinerDrawerOpen"
+      title="场景对象"
+      direction="ttb"
+      size="min(280px, 42vh)"
+      class="ia-outliner-drawer"
+      destroy-on-close
+    >
+      <EditorOutliner layout="drawer" :editor="sceneEditor3dRef" :ui="editorUiState" />
+    </el-drawer>
 
-      <main
-        class="relative flex min-h-[44vh] min-w-0 flex-1 flex-col overflow-hidden border-[var(--ia-border)] bg-black md:border-x"
-      >
+    <div class="app-body flex min-h-0 flex-1 flex-col md:flex-row">
+      <aside class="app-left flex w-full min-h-0 shrink-0 flex-col border-[var(--ia-border)] md:w-72 md:border-r">
+        <SimControlPanel
+          v-model:scene-tab="sceneTab"
+          v-model:view-mode="viewMode"
+          v-model:deploy-mode="deployMode"
+          v-model:simulate-disconnect="simulateDisconnect"
+          v-model:simulate-low-battery="simulateLowBattery"
+          v-model:simulate-rtk-lost="simulateRtkLost"
+          v-model:route-fetch-uav-id="routeFetchUavId"
+          v-model:route-fetch-plan-id="routeFetchPlanId"
+          :edge-metrics="edgeMetrics"
+          :patrol-tower-coord-rows="patrolTowerCoordRows"
+          :route-fetch-loading="routeFetchLoading"
+          :route-fetch-raw-json="routeFetchRawJson"
+          :mission-json="missionJson"
+          :role-label="roleLabel"
+          class="min-h-0 flex-1"
+          @apply-network="applyNetworkSim"
+          @copy-tower-coord="copyTowerCoord"
+          @copy-all-photo-coords="copyAllPhotoCoords"
+          @pull-route="pullRouteAndConvert"
+          @try-waypoint-limit="try65535Demo"
+        />
+      </aside>
+
+      <main class="relative flex min-h-[40vh] min-w-0 flex-1 flex-col overflow-hidden bg-black">
         <div ref="canvasWrapperRef" class="relative min-h-0 min-w-0 flex-1 self-stretch">
           <canvas ref="canvasRef" class="absolute inset-0 block h-full w-full touch-none" />
           <div
@@ -1155,199 +1164,54 @@ function try65535Demo() {
         </div>
       </main>
 
-      <EditorProperties
-        v-if="sceneEditEnabled"
-        :editor="sceneEditor3dRef"
-        :ui="editorUiState"
-        class="max-h-[50vh] min-h-0 shrink-0 overflow-y-auto max-md:w-full md:max-h-none"
-      />
+      <aside class="app-right flex w-full min-h-0 shrink-0 flex-col border-[var(--ia-border)] md:w-72 md:border-l">
+        <EditorProperties :editor="sceneEditor3dRef" :ui="editorUiState" class="min-h-0 flex-[1_1_48%]" />
 
-      <aside
-        v-else
-        class="flex w-full shrink-0 flex-col gap-2 overflow-y-auto border-[var(--ia-border)] bg-[var(--ia-panel)] p-3 md:w-72 md:border-l"
-      >
-        <div class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">无人机控制</div>
-        <p class="font-mono text-[9px] leading-tight text-[var(--ia-muted)]">任务与遥测在侧栏；场景切换与模型编辑在顶部。</p>
+        <div class="drone-control-panel flex min-h-0 flex-[1_1_52%] flex-col gap-2 overflow-y-auto border-t border-[var(--ia-border)] bg-[var(--ia-panel)] p-3">
+          <div class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">无人机控制</div>
+          <p class="font-mono text-[9px] leading-tight text-[var(--ia-muted)]">任务与遥测；仿真场景与参数在左侧栏。</p>
 
-        <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
-          <template #header>任务控制</template>
-          <div class="flex flex-wrap gap-2">
-            <el-button type="primary" size="small" class="!font-mono" @click="startMission">启动巡检</el-button>
-            <el-button size="small" class="!font-mono" @click="togglePause">暂停 / 继续</el-button>
-            <el-button size="small" class="!font-mono" @click="resetMission">重置</el-button>
-          </div>
-        </el-card>
-        <el-card v-else shadow="never" class="ia-card">
-          <template #header>任务控制</template>
-          <p class="font-mono text-[10px] leading-relaxed text-[var(--ia-muted)]">当前为变电站浏览场景，无航线任务仿真。</p>
-        </el-card>
+          <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
+            <template #header>任务控制</template>
+            <div class="flex flex-wrap gap-2">
+              <el-button type="primary" size="small" class="!font-mono" @click="startMission">启动巡检</el-button>
+              <el-button size="small" class="!font-mono" @click="togglePause">暂停 / 继续</el-button>
+              <el-button size="small" class="!font-mono" @click="resetMission">重置</el-button>
+            </div>
+          </el-card>
+          <el-card v-else shadow="never" class="ia-card">
+            <template #header>任务控制</template>
+            <p class="font-mono text-[10px] leading-relaxed text-[var(--ia-muted)]">当前为变电站浏览场景，无航线任务仿真。</p>
+          </el-card>
 
-        <div class="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">遥测</div>
-        <el-descriptions :column="1" border size="small" class="ia-desc">
-          <el-descriptions-item label="X / m">{{ telemetry?.position.x.toFixed(1) ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="Y / m">{{ telemetry?.position.y.toFixed(1) ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="Z / m">{{ telemetry?.position.z.toFixed(1) ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="高度">{{ telemetry?.altitudeM.toFixed(1) ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="电量 %">{{ telemetry?.batteryPercent.toFixed(1) ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="速度">{{ telemetry?.speedMps.toFixed(1) ?? '—' }} m/s</el-descriptions-item>
-          <el-descriptions-item label="RTK">{{ telemetry?.rtkMode ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="进度">{{ telemetry ? (telemetry.missionProgress * 100).toFixed(0) + '%' : '—' }}</el-descriptions-item>
-          <el-descriptions-item label="相位">{{ telemetry?.phase ?? '—' }}</el-descriptions-item>
-        </el-descriptions>
-        <el-card shadow="never" class="ia-card">
-          <template #header>云端轨迹入库</template>
-          <p class="font-mono text-[10px] text-[var(--ia-muted)]">
-            {{ 1000 / TELEMETRY_INTERVAL_MS }} Hz → uav_location_history
-          </p>
-          <p class="font-mono text-sm">已入库 <b class="text-[var(--ia-accent)]">{{ cloudReceiveCount }}</b> 条</p>
-          <p class="font-mono text-[10px] text-amber-600/90">边缘缓存 {{ offlineBufferHint }}</p>
-        </el-card>
-        <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
-          <template #header>任务状态</template>
-          <p class="mb-2 font-mono text-[11px] leading-relaxed text-[var(--ia-muted)]">{{ taskStatus }}</p>
-        </el-card>
+          <div class="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">遥测</div>
+          <el-descriptions :column="1" border size="small" class="ia-desc">
+            <el-descriptions-item label="X / m">{{ telemetry?.position.x.toFixed(1) ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item label="Y / m">{{ telemetry?.position.y.toFixed(1) ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item label="Z / m">{{ telemetry?.position.z.toFixed(1) ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item label="高度">{{ telemetry?.altitudeM.toFixed(1) ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item label="电量 %">{{ telemetry?.batteryPercent.toFixed(1) ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item label="速度">{{ telemetry?.speedMps.toFixed(1) ?? '—' }} m/s</el-descriptions-item>
+            <el-descriptions-item label="RTK">{{ telemetry?.rtkMode ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item label="进度">{{ telemetry ? (telemetry.missionProgress * 100).toFixed(0) + '%' : '—' }}</el-descriptions-item>
+            <el-descriptions-item label="相位">{{ telemetry?.phase ?? '—' }}</el-descriptions-item>
+          </el-descriptions>
+          <el-card shadow="never" class="ia-card">
+            <template #header>云端轨迹入库</template>
+            <p class="font-mono text-[10px] text-[var(--ia-muted)]">
+              {{ 1000 / TELEMETRY_INTERVAL_MS }} Hz → uav_location_history
+            </p>
+            <p class="font-mono text-sm">已入库 <b class="text-[var(--ia-accent)]">{{ cloudReceiveCount }}</b> 条</p>
+            <p class="font-mono text-[10px] text-amber-600/90">边缘缓存 {{ offlineBufferHint }}</p>
+          </el-card>
+          <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
+            <template #header>任务状态</template>
+            <p class="mb-2 font-mono text-[11px] leading-relaxed text-[var(--ia-muted)]">{{ taskStatus }}</p>
+          </el-card>
+        </div>
       </aside>
     </div>
 
-    <el-drawer v-model="simDrawerOpen" title="仿真控制台" direction="ltr" size="min(380px, 92vw)" class="ia-drawer-shell">
-      <div class="flex flex-col gap-3 pb-4 font-mono text-[11px] text-[var(--ia-muted)]">
-        <section class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
-          <div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider">边缘终端负载</div>
-          <div class="grid grid-cols-2 gap-2 text-[11px]">
-            <div>
-              <span class="text-[var(--ia-muted)]">CPU</span>
-              <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.cpuPercent.toFixed(1) }} %</div>
-            </div>
-            <div>
-              <span class="text-[var(--ia-muted)]">存储</span>
-              <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.storagePercent.toFixed(1) }} %</div>
-            </div>
-            <div class="col-span-2">
-              <span class="text-[var(--ia-muted)]">网络</span>
-              <div class="text-sm text-[#e8f0f8]">{{ edgeMetrics.networkMbps.toFixed(1) }} Mbps</div>
-              <div class="text-[10px] text-[#6a8aa8]">{{ edgeMetrics.networkLabel }}</div>
-            </div>
-          </div>
-        </section>
-
-        <section v-if="sceneTab === 'patrol'" class="rounded border border-[var(--ia-border)] bg-[#0c141c] p-2.5">
-          <div class="mb-1 text-[10px] font-semibold uppercase tracking-wider">场景视角</div>
-          <el-radio-group v-model="viewMode" size="small" class="ia-radio-tight flex flex-col gap-0.5">
-            <el-radio value="aerial">鸟瞰（默认轨道）</el-radio>
-            <el-radio value="ground">地面观察（人眼高度）</el-radio>
-          </el-radio-group>
-          <p class="mt-1 text-[9px] leading-tight">切至地面时为固定站位；从鸟瞰进入地面会记住当前机位，切回鸟瞰时恢复。</p>
-        </section>
-
-        <el-card shadow="never" class="ia-card">
-          <template #header>部署模式</template>
-          <el-radio-group v-model="deployMode" size="small" class="ia-radio-tight flex flex-col gap-1">
-            <el-radio value="groundStation">地面站（+100ms RTT）</el-radio>
-            <el-radio value="onboard">机载（+20ms RTT）</el-radio>
-          </el-radio-group>
-          <p class="mt-1 text-[9px] leading-tight">云端固定 200ms + 模式附加延迟（<code class="text-[var(--ia-accent)]">constants.ts</code>）</p>
-        </el-card>
-
-        <el-card shadow="never" class="ia-card">
-          <template #header>异常注入</template>
-          <el-switch v-model="simulateDisconnect" active-text="断网" @change="applyNetworkSim" />
-          <p class="mt-1 text-[10px]">断网时遥测缓存，恢复后补报</p>
-          <el-divider class="!my-2 !border-[var(--ia-border)]" />
-          <el-switch v-model="simulateLowBattery" active-text="低电量起飞" />
-          <p class="mt-1 text-[10px]">自检 15% →「电量不足，无法起飞!」</p>
-          <el-divider class="!my-2 !border-[var(--ia-border)]" />
-          <el-switch v-model="simulateRtkLost" active-text="非 RTK 固定解" />
-          <p class="mt-1 text-[10px]">mode≠2 →「未切换到RTK定位…」</p>
-        </el-card>
-
-        <el-card shadow="never" class="ia-card">
-          <template #header>航点上限（65535）</template>
-          <el-button size="small" class="!font-mono" @click="try65535Demo">触发校验</el-button>
-        </el-card>
-
-        <el-card v-if="sceneTab === 'patrol'" shadow="never" class="ia-card">
-          <template #header>
-            <div class="flex items-center justify-between gap-2">
-              <span>杆塔参考坐标（WGS84）</span>
-              <el-button type="primary" link size="small" class="!font-mono" @click="copyAllPhotoCoords">
-                复制拍照点
-              </el-button>
-            </div>
-          </template>
-          <p class="mb-2 text-[9px] leading-tight text-[var(--ia-muted)]">
-            与 3D 场景标签、<code class="text-[var(--ia-accent)]">sceneToGps</code> 一致；填入 raccoon-ui「路径规划」起降 / 途经 / 拍照点。基准约 30.5°N、104.0°E（仿真用）。
-          </p>
-          <el-table :data="patrolTowerCoordRows" size="small" stripe max-height="280" class="font-mono tower-coord-table">
-            <el-table-column prop="label" label="位置" min-width="108" show-overflow-tooltip />
-            <el-table-column label="类型" width="44">
-              <template #default="{ row }">
-                <span class="text-[9px] text-[var(--ia-accent)]">{{ roleLabel(row.role) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="longitude" label="经度" min-width="88" />
-            <el-table-column prop="latitude" label="纬度" min-width="88" />
-            <el-table-column label="高(m)" width="56">
-              <template #default="{ row }">
-                <span v-if="row.role === 'tower_center' && row.structuralHeight != null" class="text-[9px]">
-                  {{ row.structuralHeight }}
-                  <span class="text-[var(--ia-muted)]">全高</span>
-                </span>
-                <span v-else>{{ row.height }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="" width="40" align="center">
-              <template #default="{ row }">
-                <el-button type="primary" link size="small" title="复制 经度,纬度,高度" @click="copyTowerCoord(row)">
-                  复制
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-
-        <el-card shadow="never" class="ia-card">
-          <template #header>智能巡检路径（云端）</template>
-          <div class="flex flex-col gap-2">
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <div class="mb-0.5 text-[10px] text-[var(--ia-muted)]">无人机 ID</div>
-                <el-input-number v-model="routeFetchUavId" :min="1" :controls="false" class="!w-full" size="small" />
-              </div>
-              <div>
-                <div class="mb-0.5 text-[10px] text-[var(--ia-muted)]">路径规划 planId</div>
-                <el-input-number v-model="routeFetchPlanId" :min="1" :controls="false" class="!w-full" size="small" />
-              </div>
-            </div>
-            <el-button
-              type="primary"
-              size="small"
-              class="!font-mono"
-              :loading="routeFetchLoading"
-              @click="pullRouteAndConvert"
-            >
-              拉取并转换 Waypoint JSON
-            </el-button>
-            <p class="text-[9px] leading-tight text-[var(--ia-muted)]">
-              调用
-              <code class="text-[var(--ia-accent)]">GET /route-plan/dispatch</code>
-              （代理至 8091）。拉取后点「开始任务」将按折线逐点飞行；未拉取则用内置演示航线（平滑曲线）。
-            </p>
-          </div>
-        </el-card>
-
-        <el-collapse v-if="routeFetchRawJson" class="ia-collapse ia-collapse-json">
-          <el-collapse-item title="后台路径规划 JSON" name="dispatch">
-            <pre class="max-h-40 overflow-auto p-1 text-[10px] leading-snug text-[#8ab4f8]">{{ routeFetchRawJson }}</pre>
-          </el-collapse-item>
-        </el-collapse>
-
-        <el-collapse v-if="missionJson" class="ia-collapse ia-collapse-json">
-          <el-collapse-item title="Waypoint 任务 JSON" name="1">
-            <pre class="max-h-48 overflow-auto p-1 text-[10px] leading-snug text-[#6ecf9b]">{{ missionJson }}</pre>
-          </el-collapse-item>
-        </el-collapse>
-      </div>
-    </el-drawer>
 
     <el-dialog v-model="reportOpen" title="巡检报告" class="ia-dialog" width="min(92vw, 760px)" destroy-on-close>
       <template v-if="lastReport">
@@ -1523,19 +1387,43 @@ function try65535Demo() {
   border-color: var(--ia-border);
 }
 
-:deep(.ia-drawer-shell) {
+.app-body {
+  min-height: 0;
+}
+
+.edit-toolbar-row {
+  min-height: 36px;
+}
+
+:deep(.edit-toolbar-inner) {
+  border-bottom: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  width: max-content;
+  max-width: 100%;
+}
+
+:deep(.edit-toolbar-inner .edit-toolbar-tools) {
+  justify-content: center;
+}
+
+:deep(.ia-outliner-drawer) {
   --el-drawer-bg-color: #0f1824;
 }
-:deep(.ia-drawer-shell .el-drawer__header) {
+:deep(.ia-outliner-drawer .el-drawer__header) {
   margin-bottom: 8px;
-  padding: 12px 14px 0;
+  padding: 10px 14px 0;
   font-family: ui-monospace, monospace;
   font-size: 12px;
   color: var(--ia-muted);
   border-bottom: 1px solid var(--ia-border);
 }
-:deep(.ia-drawer-shell .el-drawer__body) {
-  padding: 10px 12px 14px;
+:deep(.ia-outliner-drawer .el-drawer__body) {
+  padding: 12px 14px 16px;
   background: #0a1018;
+}
+:deep(.ia-outliner-drawer.el-drawer.ttb) {
+  border-bottom: 1px solid var(--ia-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 </style>

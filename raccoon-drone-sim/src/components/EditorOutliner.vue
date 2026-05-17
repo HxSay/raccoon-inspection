@@ -5,10 +5,15 @@ import type { ShallowRef } from 'vue'
 import type { SceneEditor3D } from '@/editor/SceneEditor3D'
 import type { EditorUiState, EditorPrimitiveKind } from '@/editor/types'
 
-const props = defineProps<{
-  editor: ShallowRef<SceneEditor3D | null>
-  ui: ShallowRef<EditorUiState | null>
-}>()
+const props = withDefaults(
+  defineProps<{
+    editor: ShallowRef<SceneEditor3D | null>
+    ui: ShallowRef<EditorUiState | null>
+    /** panel=侧栏；drawer=顶部抽屉内横向布局 */
+    layout?: 'panel' | 'drawer'
+  }>(),
+  { layout: 'panel' }
+)
 
 const renameId = ref<string | null>(null)
 const renameText = ref('')
@@ -97,9 +102,24 @@ function onMapFile(ev: Event) {
 </script>
 
 <template>
-  <div class="editor-outliner flex h-full min-h-0 w-56 shrink-0 flex-col border-r border-[var(--ia-border)] bg-[var(--ia-panel)] text-[11px]">
-    <div class="border-b border-[var(--ia-border)] px-2 py-1.5 font-mono text-[10px] uppercase tracking-wide text-[var(--ia-accent)]">场景对象</div>
-    <div class="flex-1 overflow-y-auto px-1 py-1">
+  <div
+    class="editor-outliner text-[11px]"
+    :class="
+      layout === 'drawer'
+        ? 'flex flex-col gap-3'
+        : 'flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-[var(--ia-panel)]'
+    "
+  >
+    <div
+      v-if="layout === 'panel'"
+      class="border-b border-[var(--ia-border)] px-2 py-1.5 font-mono text-[10px] uppercase tracking-wide text-[var(--ia-accent)]"
+    >
+      场景对象
+    </div>
+    <div
+      class="overflow-y-auto px-1 py-1"
+      :class="layout === 'drawer' ? 'max-h-40 min-h-[5rem] rounded border border-[var(--ia-border)] bg-[#0a1018]' : 'flex-1'"
+    >
       <div
         v-for="n in st?.tree ?? []"
         :key="n.id"
@@ -123,18 +143,48 @@ function onMapFile(ev: Event) {
       </div>
       <div v-if="!st?.tree?.length" class="px-2 py-4 text-center text-[10px] text-[var(--ia-muted)]">暂无物体</div>
     </div>
-    <div v-if="renameId" class="border-t border-[var(--ia-border)] p-2">
+    <div v-if="renameId">
       <div class="mb-1 text-[9px] text-[var(--ia-muted)]">重命名</div>
       <el-input v-model="renameText" size="small" class="font-mono" @keyup.enter="commitRename" @blur="commitRename" />
     </div>
-    <div class="flex flex-col gap-1 border-t border-[var(--ia-border)] p-2">
-      <el-button size="small" class="!font-mono" @click="group" :disabled="(st?.selectionIds?.length ?? 0) < 2">分组（预留）</el-button>
-      <el-button size="small" class="!font-mono" @click="exportJson">导出 JSON</el-button>
-      <el-button size="small" class="!font-mono" @click="pickImportScene">导入 JSON</el-button>
+    <div
+      class="outliner-actions"
+      :class="
+        layout === 'drawer'
+          ? 'grid grid-cols-2 gap-2 sm:grid-cols-5'
+          : 'flex flex-col gap-1 border-t border-[var(--ia-border)] p-2'
+      "
+    >
+      <el-button
+        size="small"
+        class="!m-0 !font-mono"
+        :class="layout === 'drawer' ? '!w-full' : ''"
+        :disabled="(st?.selectionIds?.length ?? 0) < 2"
+        @click="group"
+      >
+        分组（预留）
+      </el-button>
+      <el-button size="small" class="!m-0 !font-mono" :class="layout === 'drawer' ? '!w-full' : ''" @click="exportJson">
+        导出 JSON
+      </el-button>
+      <el-button size="small" class="!m-0 !font-mono" :class="layout === 'drawer' ? '!w-full' : ''" @click="pickImportScene">
+        导入 JSON
+      </el-button>
       <input ref="sceneFileRef" type="file" accept=".json,application/json" class="hidden" @change="onSceneFile" />
-      <el-button size="small" class="!font-mono" @click="pickImportMap">导入地图 GLB</el-button>
+      <el-button size="small" class="!m-0 !font-mono" :class="layout === 'drawer' ? '!w-full' : ''" @click="pickImportMap">
+        导入地图 GLB
+      </el-button>
       <input ref="mapFileRef" type="file" accept=".glb,.gltf" class="hidden" @change="onMapFile" />
-      <el-button size="small" type="danger" plain class="!font-mono" @click="clearScene">清空场景</el-button>
+      <el-button
+        size="small"
+        type="danger"
+        plain
+        class="!m-0 !font-mono"
+        :class="layout === 'drawer' ? '!w-full' : ''"
+        @click="clearScene"
+      >
+        清空场景
+      </el-button>
     </div>
   </div>
 </template>
