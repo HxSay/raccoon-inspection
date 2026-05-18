@@ -108,6 +108,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '巡检数据', icon: 'DataLine' }
       },
       {
+        path: '/ai/ollama-test',
+        name: 'OllamaTest',
+        component: () => import('@/views/ai/ollama-test/index.vue'),
+        meta: { title: 'Ollama 测试', icon: 'ChatDotRound' }
+      },
+      {
         path: '/cmms/inspection/work-order/form',
         name: 'InspectionWorkOrderForm',
         component: () => import('@/views/cmms/inspection/work-order/Form.vue'),

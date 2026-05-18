@@ -1,8 +1,13 @@
+server:
+  port: 8081
+  error:
+    include-message: always
+
 spring:
   application:
     name: raccoon-cloud-agent
   config:
-    import: nacos:localhost:8848
+    import: optional:nacos:localhost:8848
   cloud:
     nacos:
       discovery:
@@ -10,6 +15,15 @@ spring:
       config:
         server-addr: localhost:8848
         file-extension: yml
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        options:
+          model: qwen2:7b
+          temperature: 0.7
 
-server:
-  port: 8081
+logging:
+  level:
+    com.raccoon.cloud.agent: debug
+    org.springframework.ai: info

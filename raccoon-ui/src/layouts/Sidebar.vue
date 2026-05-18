@@ -44,7 +44,8 @@ const menuTree: MenuNode[] = [
       { path: '/user', title: '用户管理', icon: 'User' },
       { path: '/role', title: '角色管理', icon: 'UserFilled' },
       { path: '/dict/type', title: '字典类型管理', icon: 'Document' },
-      { path: '/dict/data', title: '字典数据管理', icon: 'Collection' }
+      { path: '/dict/data', title: '字典数据管理', icon: 'Collection' },
+      { path: '/ai/ollama-test', title: 'Ollama 测试', icon: 'ChatDotRound' }
     ]
   },
   { type: 'item', path: '/cmms/device', title: '设备管理', icon: 'Monitor' },

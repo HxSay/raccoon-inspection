@@ -3,6 +3,13 @@
   "configurations": [
     {
       "type": "java",
+      "name": "AgentApplication",
+      "request": "launch",
+      "mainClass": "com.raccoon.cloud.agent.AgentApplication",
+      "projectName": "raccoon-cloud-agent"
+    },
+    {
+      "type": "java",
       "name": "DeviceApplication",
       "request": "launch",
       "mainClass": "com.raccoon.cloud.device.DeviceApplication",
