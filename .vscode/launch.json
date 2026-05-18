@@ -3,10 +3,11 @@
   "configurations": [
     {
       "type": "java",
-      "name": "AgentApplication",
+      "name": "Agent · raccoon-cloud-agent (8081)",
       "request": "launch",
       "mainClass": "com.raccoon.cloud.agent.AgentApplication",
-      "projectName": "raccoon-cloud-agent"
+      "projectName": "raccoon-cloud-agent",
+      "cwd": "${workspaceFolder}/raccoon-cloud/raccoon-cloud-agent"
     },
     {
       "type": "java",

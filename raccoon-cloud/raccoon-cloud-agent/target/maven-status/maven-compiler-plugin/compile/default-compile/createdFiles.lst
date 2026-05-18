@@ -1,2 +1,10 @@
-com\raccoon\cloud\agent\AgentApplication.class
+com\raccoon\cloud\agent\web\OllamaChatController.class
+com\raccoon\cloud\agent\config\AgentRestClientConfig.class
+com\raccoon\cloud\agent\service\OllamaChatService.class
+com\raccoon\cloud\agent\dto\OllamaModelVO.class
+com\raccoon\cloud\agent\dto\OllamaHealthVO.class
+com\raccoon\cloud\agent\web\AgentExceptionHandler.class
 com\raccoon\cloud\agent\controller\TestFeignController.class
+com\raccoon\cloud\agent\dto\OllamaChatRequest.class
+com\raccoon\cloud\agent\dto\OllamaChatResponse.class
+com\raccoon\cloud\agent\AgentApplication.class

@@ -1,4 +1,16 @@
 {
+  "java.jdt.ls.java.home": "C:\\Program Files\\Java\\jdk-17",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-17",
+      "path": "C:\\Program Files\\Java\\jdk-17",
+      "default": true
+    },
+    {
+      "name": "JavaSE-24",
+      "path": "C:\\Program Files\\Java\\jdk-24"
+    }
+  ],
   "java.compile.nullAnalysis.mode": "automatic",
   "java.configuration.updateBuildConfiguration": "automatic",
   "java.import.maven.enabled": true,
@@ -10,6 +22,12 @@
   "java.import.generatesMetadataFilesAtProjectRoot": false,
   "java.maven.downloadSources": true,
   "maven.executable.path": "C:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.1.2\\plugins\\maven\\lib\\maven3\\bin\\mvn.cmd",
+  "maven.terminal.customEnv": [
+    {
+      "environmentVariable": "JAVA_HOME",
+      "value": "C:\\Program Files\\Java\\jdk-17"
+    }
+  ],
   "maven.view": "hierarchical",
   "java.import.exclusions": [
     "**/raccoon-drone-sim/**",

@@ -1,2 +1,10 @@
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\dto\OllamaHealthVO.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\dto\OllamaModelVO.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\AgentApplication.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\dto\OllamaChatRequest.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\web\OllamaChatController.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\web\AgentExceptionHandler.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\service\OllamaChatService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\controller\TestFeignController.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\config\AgentRestClientConfig.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\dto\OllamaChatResponse.java
