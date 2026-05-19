@@ -34,3 +34,28 @@ export const agentOllamaModels = () =>
 
 export const agentOllamaChat = (data: OllamaChatRequest) =>
   request({ url: '/agent/ollama/chat', method: 'post', data })
+
+export interface Neo4jHealth {
+  reachable: boolean
+  uri: string
+  browserUrl: string
+  version?: string
+  edition?: string
+  message: string
+}
+
+export interface Neo4jStats {
+  nodeCount: number
+  relationshipCount: number
+  labels: string[]
+  relationshipTypes: string[]
+}
+
+export const agentNeo4jHealth = () =>
+  request({ url: '/agent/neo4j/health', method: 'get' })
+
+export const agentNeo4jStats = () =>
+  request({ url: '/agent/neo4j/stats', method: 'get' })
+
+export const agentNeo4jReadCypher = (cypher: string) =>
+  request({ url: '/agent/neo4j/cypher/read', method: 'post', data: { cypher } })

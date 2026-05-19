@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.neo4j.driver.exceptions.Neo4jException;
 import org.springframework.web.client.ResourceAccessException;
 
 @Slf4j
@@ -47,6 +48,13 @@ public class AgentExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public HxResult<Void> handleIllegalState(IllegalStateException e) {
         return HxResult.badRequest(e.getMessage());
+    }
+
+    @ExceptionHandler(Neo4jException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public HxResult<Void> handleNeo4j(Neo4jException e) {
+        log.warn("neo4j error: {}", e.getMessage());
+        return HxResult.fail("Neo4j 执行失败: " + e.getMessage());
     }
 
     @ExceptionHandler(ResourceAccessException.class)

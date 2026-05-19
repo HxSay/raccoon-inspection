@@ -45,7 +45,8 @@ const menuTree: MenuNode[] = [
       { path: '/role', title: '角色管理', icon: 'UserFilled' },
       { path: '/dict/type', title: '字典类型管理', icon: 'Document' },
       { path: '/dict/data', title: '字典数据管理', icon: 'Collection' },
-      { path: '/ai/ollama-test', title: 'Ollama 测试', icon: 'ChatDotRound' }
+      { path: '/ai/ollama-test', title: 'Ollama 测试', icon: 'ChatDotRound' },
+      { path: '/ai/neo4j-test', title: 'Neo4j 图库', icon: 'Share' }
     ]
   },
   { type: 'item', path: '/cmms/device', title: '设备管理', icon: 'Monitor' },

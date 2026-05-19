@@ -22,6 +22,15 @@ spring:
         options:
           model: qwen2:7b
           temperature: 0.7
+  neo4j:
+    uri: bolt://127.0.0.1:7687
+    authentication:
+      username: neo4j
+      password: Inspection@123456
+
+raccoon:
+  neo4j:
+    browser-url: http://127.0.0.1:7474
 
 logging:
   level:

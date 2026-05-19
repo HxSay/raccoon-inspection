@@ -114,6 +114,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Ollama 测试', icon: 'ChatDotRound' }
       },
       {
+        path: '/ai/neo4j-test',
+        name: 'Neo4jTest',
+        component: () => import('@/views/ai/neo4j-test/index.vue'),
+        meta: { title: 'Neo4j 图库', icon: 'Share' }
+      },
+      {
         path: '/cmms/inspection/work-order/form',
         name: 'InspectionWorkOrderForm',
         component: () => import('@/views/cmms/inspection/work-order/Form.vue'),
