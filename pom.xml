@@ -114,6 +114,17 @@
     </modules>
 
     <build>
+        <plugins>
+            <!-- 聚合根工程无 main，避免 mvn spring-boot:run -am 时在此模块执行 run -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <inherited>false</inherited>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+        </plugins>
         <pluginManagement>
             <plugins>
                 <plugin>

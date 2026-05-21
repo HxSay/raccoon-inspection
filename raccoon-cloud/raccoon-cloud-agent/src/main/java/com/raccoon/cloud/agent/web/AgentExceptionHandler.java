@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import io.minio.errors.MinioException;
 import org.neo4j.driver.exceptions.Neo4jException;
 import org.springframework.web.client.ResourceAccessException;
 
@@ -48,6 +49,13 @@ public class AgentExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public HxResult<Void> handleIllegalState(IllegalStateException e) {
         return HxResult.badRequest(e.getMessage());
+    }
+
+    @ExceptionHandler({MinioException.class, io.minio.errors.ErrorResponseException.class})
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public HxResult<Void> handleMinio(Exception e) {
+        log.warn("minio error: {}", e.getMessage());
+        return HxResult.fail("MinIO 操作失败: " + e.getMessage());
     }
 
     @ExceptionHandler(Neo4jException.class)

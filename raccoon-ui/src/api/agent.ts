@@ -59,3 +59,57 @@ export const agentNeo4jStats = () =>
 
 export const agentNeo4jReadCypher = (cypher: string) =>
   request({ url: '/agent/neo4j/cypher/read', method: 'post', data: { cypher } })
+
+export interface MinioHealth {
+  reachable: boolean
+  endpoint: string
+  bucketName: string
+  bucketExists: boolean
+  urlExpireDays: number
+  message: string
+}
+
+export interface MinioObject {
+  objectKey: string
+  size: number
+  lastModified?: string
+  etag?: string
+  presignedUrl?: string
+}
+
+export interface MinioUploadResult {
+  objectKey: string
+  bucketName: string
+  size: number
+  contentType?: string
+  presignedUrl: string
+}
+
+export const agentMinioHealth = () =>
+  request({ url: '/agent/minio/health', method: 'get' })
+
+export const agentMinioListObjects = (prefix?: string, limit = 50) =>
+  request({
+    url: '/agent/minio/objects',
+    method: 'get',
+    params: { prefix, limit }
+  })
+
+export const agentMinioPresign = (objectKey: string) =>
+  request({ url: '/agent/minio/presign', method: 'get', params: { objectKey } })
+
+export const agentMinioDelete = (objectKey: string) =>
+  request({ url: '/agent/minio/object', method: 'delete', params: { objectKey } })
+
+export const agentMinioUpload = (file: File, prefix?: string) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (prefix) form.append('prefix', prefix)
+  return request({
+    url: '/agent/minio/upload',
+    method: 'post',
+    data: form,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+}

@@ -120,6 +120,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Neo4j 图库', icon: 'Share' }
       },
       {
+        path: '/test/minio',
+        name: 'MinioTest',
+        component: () => import('@/views/test/minio-test/index.vue'),
+        meta: { title: 'MinIO 测试', icon: 'Upload' }
+      },
+      {
         path: '/cmms/inspection/work-order/form',
         name: 'InspectionWorkOrderForm',
         component: () => import('@/views/cmms/inspection/work-order/Form.vue'),

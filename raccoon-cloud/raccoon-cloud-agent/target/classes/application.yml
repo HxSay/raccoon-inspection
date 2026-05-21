@@ -8,6 +8,10 @@ spring:
     name: raccoon-cloud-agent
   config:
     import: optional:nacos:localhost:8848
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
   cloud:
     nacos:
       discovery:
@@ -31,6 +35,12 @@ spring:
 raccoon:
   neo4j:
     browser-url: http://127.0.0.1:7474
+  minio:
+    endpoint: http://127.0.0.1:9000
+    access-key: minioadmin
+    secret-key: Minio@123456
+    bucket-name: inspection
+    url-expire-days: 7
 
 logging:
   level:

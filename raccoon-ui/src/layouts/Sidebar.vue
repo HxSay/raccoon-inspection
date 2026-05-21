@@ -69,6 +69,13 @@ const menuTree: MenuNode[] = [
       { path: '/drone/route-plan', title: '无人机路径规划', icon: 'Position' },
       { path: '/drone/inspection-data', title: '巡检数据', icon: 'DataLine' }
     ]
+  },
+  {
+    type: 'submenu',
+    index: 'test-cases',
+    title: '测试用例',
+    icon: 'Memo',
+    children: [{ path: '/test/minio', title: 'MinIO 测试', icon: 'Upload' }]
   }
 ]
 

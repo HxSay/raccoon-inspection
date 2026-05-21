@@ -1,0 +1,25 @@
+{
+  "collection_name": "knowledge_vectors",
+  "description": "RAG knowledge base vectors",
+  "auto_id": false,
+  "enable_dynamic_field": false,
+  "consistency_level": 1,
+  "shards_num": 1,
+  "fields": [
+    {
+      "name": "id",
+      "type": "INT64",
+      "is_primary": true
+    },
+    {
+      "name": "embedding",
+      "type": "FLOAT_VECTOR",
+      "dim": 768
+    },
+    {
+      "name": "content",
+      "type": "VARCHAR",
+      "max_length": 65535
+    }
+  ]
+}

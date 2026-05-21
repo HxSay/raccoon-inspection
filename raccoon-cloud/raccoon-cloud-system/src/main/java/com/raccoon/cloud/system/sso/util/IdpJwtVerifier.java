@@ -12,6 +12,7 @@ import org.springframework.util.StringUtils;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.Key;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
@@ -81,7 +82,7 @@ public class IdpJwtVerifier {
         }
     }
 
-    private Object resolveSigningKey(SsoProperties props) {
+    private Key resolveSigningKey(SsoProperties props) {
         SsoProperties.IdpJwt idp = props.getIdpJwt();
         if (StringUtils.hasText(idp.getPublicKeyPem())) {
             return parseRsaPublicKey(idp.getPublicKeyPem());
