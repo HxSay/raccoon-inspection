@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
+﻿import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
 const routes: RouteRecordRaw[] = [
@@ -118,6 +118,11 @@ const routes: RouteRecordRaw[] = [
         name: 'Neo4jTest',
         component: () => import('@/views/ai/neo4j-test/index.vue'),
         meta: { title: 'Neo4j 图库', icon: 'Share' }
+      },      {
+        path: '/ai/milvus/test',
+        name: 'MilvusTest',
+        component: () => import('@/views/ai/milvus-test/index.vue'),
+        meta: { title: 'Milvus 娴嬭瘯', icon: 'Coin' }
       },
       {
         path: '/test/minio',

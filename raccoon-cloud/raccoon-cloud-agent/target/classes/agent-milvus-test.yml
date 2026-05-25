@@ -1,0 +1,24 @@
+# Milvus 向量库测试工具专用配置（由 MilvusTestEnvironmentPostProcessor 自动加载，优先级最高）
+# 关键点：
+# 1. MilvusTestService 在 @PostConstruct 中自建独立 MilvusVectorStore（inspection_rag_store 集合）
+# 2. Spring AI 自动装配的全局 vectorStore Bean（默认指向 vector_store 集合）不会被测试代码引用
+# 3. milvusTestEmbeddingModel 标注 @Primary，避免 Spring AI 自动装配时多个 EmbeddingModel 歧义
+spring:
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+    vectorstore:
+      milvus:
+        client:
+          host: localhost
+          port: 19530
+        database-name: default
+        # 让 Spring AI 默认 vectorStore 不要尝试 createCollection / loadCollection，避免维度报警
+        initialize-schema: false
+
+raccoon:
+  milvus-test:
+    # 测试专用集合，与 Nacos 默认 vector_store 完全隔离
+    collection-name: inspection_rag_store
+    # 测试工具使用的 embedding 模型（@Primary），避免 Nacos 指向未 pull 的模型
+    embedding-model: nomic-embed-text

@@ -1,0 +1,15 @@
+<!--
+  Milvus 测试工具所需 Maven 依赖（请合并到 raccoon-cloud-agent/pom.xml 的 <dependencies> 中）。
+  或执行：scripts/integrate-milvus-test.ps1
+-->
+<!--
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-vector-store-milvus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-ollama</artifactId>
+        </dependency>
+-->
+<!-- 说明：若已有 spring-ai-starter-model-ollama 可只添加 milvus 那一项 -->

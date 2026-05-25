@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -44,9 +44,7 @@ const menuTree: MenuNode[] = [
       { path: '/user', title: '用户管理', icon: 'User' },
       { path: '/role', title: '角色管理', icon: 'UserFilled' },
       { path: '/dict/type', title: '字典类型管理', icon: 'Document' },
-      { path: '/dict/data', title: '字典数据管理', icon: 'Collection' },
-      { path: '/ai/ollama-test', title: 'Ollama 测试', icon: 'ChatDotRound' },
-      { path: '/ai/neo4j-test', title: 'Neo4j 图库', icon: 'Share' }
+      { path: '/dict/data', title: '字典数据管理', icon: 'Collection' }
     ]
   },
   { type: 'item', path: '/cmms/device', title: '设备管理', icon: 'Monitor' },
@@ -75,7 +73,12 @@ const menuTree: MenuNode[] = [
     index: 'test-cases',
     title: '测试用例',
     icon: 'Memo',
-    children: [{ path: '/test/minio', title: 'MinIO 测试', icon: 'Upload' }]
+    children: [
+      { path: '/test/minio', title: 'MinIO 测试', icon: 'Upload' },
+      { path: '/ai/ollama-test', title: 'Ollama 测试', icon: 'ChatDotRound' },
+      { path: '/ai/neo4j-test', title: 'Neo4j 图库', icon: 'Share' },
+      { path: '/ai/milvus/test', title: 'Milvus 测试', icon: 'Coin' }
+    ]
   }
 ]
 
