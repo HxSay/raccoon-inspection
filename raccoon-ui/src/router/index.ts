@@ -131,6 +131,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'MinIO 测试', icon: 'Upload' }
       },
       {
+        path: '/rag/document',
+        name: 'RagDocument',
+        component: () => import('@/views/rag/document/index.vue'),
+        meta: { title: '巡检知识库管理', icon: 'Files' }
+      },
+      {
+        path: '/rag/chat',
+        name: 'RagChat',
+        component: () => import('@/views/rag/chat/index.vue'),
+        meta: { title: '巡检RAG问答', icon: 'ChatLineRound' }
+      },
+      {
+        path: '/rag/storage',
+        name: 'RagStorage',
+        component: () => import('@/views/rag/storage/index.vue'),
+        meta: { title: '知识库存储查看', icon: 'DataAnalysis' }
+      },
+      {
         path: '/cmms/inspection/work-order/form',
         name: 'InspectionWorkOrderForm',
         component: () => import('@/views/cmms/inspection/work-order/Form.vue'),

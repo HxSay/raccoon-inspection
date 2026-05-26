@@ -70,6 +70,17 @@ const menuTree: MenuNode[] = [
   },
   {
     type: 'submenu',
+    index: 'rag',
+    title: '智能知识库',
+    icon: 'Reading',
+    children: [
+      { path: '/rag/document', title: '巡检知识库管理', icon: 'Files' },
+      { path: '/rag/chat', title: '巡检RAG问答', icon: 'ChatLineRound' },
+      { path: '/rag/storage', title: '知识库存储查看', icon: 'DataAnalysis' }
+    ]
+  },
+  {
+    type: 'submenu',
     index: 'test-cases',
     title: '测试用例',
     icon: 'Memo',
