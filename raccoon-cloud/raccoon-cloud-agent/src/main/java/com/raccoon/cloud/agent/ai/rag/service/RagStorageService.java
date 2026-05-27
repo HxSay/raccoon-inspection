@@ -6,6 +6,8 @@ import com.raccoon.cloud.agent.ai.rag.dto.MilvusCollectionStatsVO;
 import com.raccoon.cloud.agent.ai.rag.dto.Neo4jNodeVO;
 import com.raccoon.cloud.agent.ai.rag.dto.Neo4jOverviewVO;
 import com.raccoon.cloud.agent.ai.rag.dto.Neo4jRelationshipVO;
+import org.springframework.ai.vectorstore.VectorStore;
+
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.grpc.DataType;
 import io.milvus.grpc.DescribeCollectionResponse;
@@ -49,6 +51,7 @@ public class RagStorageService {
     private final Neo4jClient neo4jClient;
     private final MilvusServiceClient milvusServiceClient;
     private final RagVectorStoreConfiguration ragVectorStore;
+    private final DocumentIngestionService documentIngestionService;
 
     // ============== Neo4j ==============
 
@@ -97,19 +100,63 @@ public class RagStorageService {
                     + "，可选: " + ALLOWED_LABELS);
         }
         int safeLimit = Math.max(1, Math.min(limit, 500));
-        String cypher = "MATCH (n:" + label + ") "
-                + "RETURN id(n) AS internalId, labels(n) AS labels, properties(n) AS props "
-                + "LIMIT $limit";
+        String cypher = buildListNodesCypher(label);
         var rows = neo4jClient.query(cypher).bind(safeLimit).to("limit").fetch().all();
         List<Neo4jNodeVO> result = new ArrayList<>();
         for (Map<String, Object> r : rows) {
-            result.add(Neo4jNodeVO.builder()
+            Neo4jNodeVO.Neo4jNodeVOBuilder b = Neo4jNodeVO.builder()
                     .internalId(asLong(r.get("internalId")))
                     .labels(toStringList(r.get("labels")))
-                    .properties(asMap(r.get("props")))
-                    .build());
+                    .properties(asMap(r.get("props")));
+            if ("Document".equals(label)) {
+                b.relatedDevices(toMapList(r.get("relatedDevices")));
+            } else if ("Device".equals(label)) {
+                b.relatedDocuments(toMapList(r.get("relatedDocuments")));
+            }
+            result.add(b.build());
         }
         return result;
+    }
+
+    private static String buildListNodesCypher(String label) {
+        if ("Document".equals(label)) {
+            return """
+                    MATCH (n:Document)
+                    OPTIONAL MATCH (dev:Device)-[:HAS_DOCUMENT]->(n)
+                    WITH n, collect(DISTINCT CASE WHEN dev IS NULL THEN null ELSE {
+                        deviceId: dev.deviceId,
+                        name: coalesce(dev.name, dev.deviceId),
+                        type: dev.type,
+                        station: dev.station
+                    } END) AS relatedDevices
+                    RETURN id(n) AS internalId,
+                           labels(n) AS labels,
+                           properties(n) AS props,
+                           [x IN relatedDevices WHERE x IS NOT NULL] AS relatedDevices
+                    ORDER BY internalId DESC
+                    LIMIT $limit
+                    """;
+        }
+        if ("Device".equals(label)) {
+            return """
+                    MATCH (n:Device)
+                    OPTIONAL MATCH (n)-[:HAS_DOCUMENT]->(doc:Document)
+                    WITH n, collect(DISTINCT CASE WHEN doc IS NULL THEN null ELSE {
+                        docId: coalesce(doc.docId, doc.id),
+                        fileName: coalesce(doc.fileName, doc.title),
+                        docType: coalesce(doc.type, doc.docType)
+                    } END) AS relatedDocuments
+                    RETURN id(n) AS internalId,
+                           labels(n) AS labels,
+                           properties(n) AS props,
+                           [x IN relatedDocuments WHERE x IS NOT NULL] AS relatedDocuments
+                    ORDER BY internalId DESC
+                    LIMIT $limit
+                    """;
+        }
+        return "MATCH (n:" + label + ") "
+                + "RETURN id(n) AS internalId, labels(n) AS labels, properties(n) AS props "
+                + "ORDER BY internalId DESC LIMIT $limit";
     }
 
     public List<Neo4jRelationshipVO> listRelationships(String type, int limit) {
@@ -119,14 +166,15 @@ public class RagStorageService {
         }
         int safeLimit = Math.max(1, Math.min(limit, 500));
         String cypher = "MATCH (a)-[r:" + type + "]->(b) "
-                + "RETURN type(r) AS type, properties(r) AS props, "
+                + "RETURN id(r) AS relInternalId, type(r) AS type, properties(r) AS props, "
                 + "labels(a) AS aLabels, properties(a) AS aProps, "
                 + "labels(b) AS bLabels, properties(b) AS bProps "
-                + "LIMIT $limit";
+                + "ORDER BY relInternalId DESC LIMIT $limit";
         var rows = neo4jClient.query(cypher).bind(safeLimit).to("limit").fetch().all();
         List<Neo4jRelationshipVO> result = new ArrayList<>();
         for (Map<String, Object> r : rows) {
             result.add(Neo4jRelationshipVO.builder()
+                    .relInternalId(asLong(r.get("relInternalId")))
                     .type(asString(r.get("type")))
                     .properties(asMap(r.get("props")))
                     .startLabel(firstLabel(r.get("aLabels")))
@@ -134,6 +182,104 @@ public class RagStorageService {
                     .endLabel(firstLabel(r.get("bLabels")))
                     .endNode(asMap(r.get("bProps")))
                     .build());
+        }
+        return result;
+    }
+
+    /**
+     * 删除 Neo4j 节点。
+     * RAG 入库的 Document（含 docId + minioPath 等）会联动删除 Milvus + MinIO；
+     * 其它节点仅 DETACH DELETE 图谱节点。
+     */
+    public void deleteNeo4jNode(long internalId, String label) {
+        if (!ALLOWED_LABELS.contains(label)) {
+            throw new IllegalArgumentException("不支持的节点 label: " + label);
+        }
+        Map<String, Object> props = fetchNodeProperties(internalId, label);
+        if (props == null) {
+            throw new IllegalArgumentException("未找到节点 id=" + internalId + " label=" + label);
+        }
+        if ("Document".equals(label)) {
+            String docId = asString(props.get("docId"));
+            if (!StringUtils.hasText(docId)) {
+                docId = asString(props.get("id"));
+            }
+            if (StringUtils.hasText(docId) && isRagDocument(props)) {
+                documentIngestionService.delete(docId);
+                return;
+            }
+        }
+        detachDeleteNode(internalId, label);
+    }
+
+    /** 仅删除关系，保留两端节点。 */
+    public void deleteNeo4jRelationship(long relInternalId, String type) {
+        if (!ALLOWED_REL_TYPES.contains(type)) {
+            throw new IllegalArgumentException("不支持的关系 type: " + type);
+        }
+        long deleted = neo4jClient.query("MATCH ()-[r:" + type + "]->() WHERE id(r) = $id DELETE r RETURN count(r) AS c")
+                .bind(relInternalId).to("id")
+                .fetchAs(Long.class)
+                .mappedBy((ts, rec) -> rec.get("c").asLong())
+                .one()
+                .orElse(0L);
+        if (deleted == 0) {
+            throw new IllegalArgumentException("未找到关系 id=" + relInternalId + " type=" + type);
+        }
+    }
+
+    /** 按 Milvus 主键删除单条 chunk 向量。 */
+    public void deleteMilvusChunk(String docPk) {
+        if (!StringUtils.hasText(docPk)) {
+            throw new IllegalArgumentException("docPk 不能为空");
+        }
+        VectorStore vectorStore = ragVectorStore.getVectorStore();
+        try {
+            vectorStore.delete(List.of(docPk.trim()));
+        } catch (Exception e) {
+            throw new IllegalStateException("Milvus 删除失败: " + e.getMessage(), e);
+        }
+    }
+
+    private Map<String, Object> fetchNodeProperties(long internalId, String label) {
+        var rows = neo4jClient.query("MATCH (n:" + label + ") WHERE id(n) = $id RETURN properties(n) AS props")
+                .bind(internalId).to("id")
+                .fetch().all();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        return asMap(rows.get(0).get("props"));
+    }
+
+    private static boolean isRagDocument(Map<String, Object> props) {
+        return props.containsKey("minioPath")
+                || props.containsKey("fileName")
+                || props.containsKey("uploadTime")
+                || props.containsKey("chunkCount");
+    }
+
+    private void detachDeleteNode(long internalId, String label) {
+        long deleted = neo4jClient.query("MATCH (n:" + label + ") WHERE id(n) = $id DETACH DELETE n RETURN count(n) AS c")
+                .bind(internalId).to("id")
+                .fetchAs(Long.class)
+                .mappedBy((ts, rec) -> rec.get("c").asLong())
+                .one()
+                .orElse(0L);
+        if (deleted == 0) {
+            throw new IllegalArgumentException("未找到节点 id=" + internalId);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> toMapList(Object v) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (!(v instanceof Iterable<?> it)) {
+            return result;
+        }
+        for (Object o : it) {
+            if (o instanceof Map<?, ?> m) {
+                result.add(asMap(m));
+            }
         }
         return result;
     }

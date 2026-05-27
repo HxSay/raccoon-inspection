@@ -147,6 +147,54 @@ function Get-LogDir {
     return $dir
 }
 
+# 停止仍占用日志的旧 launcher（隐藏 PowerShell 父进程）
+function Stop-StaleServiceLauncher([string]$Name) {
+    $launcher = Join-Path (Get-RunDir) "start-$Name.ps1"
+    if (-not (Test-Path $launcher)) { return }
+    $launcherPath = (Resolve-Path $launcher).Path
+    $escaped = [regex]::Escape($launcherPath)
+    try {
+        Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and ($_.CommandLine -match $escaped) } |
+            ForEach-Object {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                Write-Ok "[stop] stale launcher $Name -> PID $($_.ProcessId)"
+            }
+    } catch {
+        # Win32_Process 不可用时忽略
+    }
+    Start-Sleep -Milliseconds 800
+}
+
+# 清空日志；文件被占用时轮转备份，避免 Set-Content 报错中断启动
+function Clear-LogFileSafe([string]$Path) {
+    $dir = Split-Path $Path -Parent
+    if (-not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Path $dir | Out-Null
+    }
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType File -Path $Path -Force | Out-Null
+        return
+    }
+    for ($i = 0; $i -lt 6; $i++) {
+        try {
+            $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+            $fs.Close()
+            return
+        } catch {
+            Start-Sleep -Milliseconds 400
+        }
+    }
+    $bak = "$Path.bak.$((Get-Date).ToString('yyyyMMddHHmmss'))"
+    try {
+        Move-Item -LiteralPath $Path -Destination $bak -Force
+        New-Item -ItemType File -Path $Path -Force | Out-Null
+        Write-WarnMsg "[warn] log locked, rotated -> $bak"
+    } catch {
+        Write-WarnMsg "[warn] cannot clear log $Path : $($_.Exception.Message). Output may append."
+    }
+}
+
 function Write-LauncherScript([string]$Path, [string[]]$Lines) {
     $text = ($Lines -join [Environment]::NewLine) + [Environment]::NewLine
     [System.IO.File]::WriteAllText($Path, $text, (New-Object System.Text.UTF8Encoding $true))
@@ -168,8 +216,8 @@ function Start-LauncherProcess {
     $logDir = Get-LogDir
     $outLog = Join-Path $logDir "$Name.log"
     $errLog = Join-Path $logDir "$Name.err.log"
-    '' | Set-Content -Path $outLog -Encoding UTF8
-    '' | Set-Content -Path $errLog -Encoding UTF8
+    Clear-LogFileSafe -Path $outLog
+    Clear-LogFileSafe -Path $errLog
 
     $proc = Start-Process -FilePath 'powershell.exe' -PassThru -WindowStyle Hidden -ArgumentList @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $LauncherPath
@@ -193,6 +241,7 @@ function Start-SpringService {
         [bool]$VisibleWindow
     )
     if (-not (Clear-PortListener -Port $Port -Label $Name)) { return }
+    Stop-StaleServiceLauncher -Name $Name
     $pomPath = Join-Path $RootPath 'pom.xml'
     $launcher = Join-Path (Get-RunDir) "start-$Name.ps1"
     $mvnEsc = Escape-SingleQuoted $Mvn
@@ -226,6 +275,7 @@ function Start-Frontend {
         throw "raccoon-ui not found: $uiDir"
     }
     if (-not (Clear-PortListener -Port 3000 -Label 'raccoon-ui')) { return }
+    Stop-StaleServiceLauncher -Name 'ui'
     $launcher = Join-Path (Get-RunDir) 'start-ui.ps1'
     $npmCmd = "& '$((Escape-SingleQuoted $Npm))' run dev"
     Write-LauncherScript -Path $launcher -Lines @(

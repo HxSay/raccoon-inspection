@@ -145,12 +145,20 @@ export const ragCleanupOrphans = () =>
     method: 'post'
   })
 
-/** 给文档批量关联设备（追加） */
-export const ragAttachDevices = (docId: string, deviceIds: string[]) =>
+/** 关联设备入参（来自 CMMS 设备管理，关联时同步写入 Neo4j） */
+export interface RagDeviceAttachInput {
+  deviceId: string
+  name?: string
+  type?: string
+  station?: string
+}
+
+/** 给文档批量关联设备（追加，并 MERGE 设备主数据到 Neo4j） */
+export const ragAttachDevices = (docId: string, devices: RagDeviceAttachInput[]) =>
   request({
     url: `${BASE}/documents/${encodeURIComponent(docId)}/devices`,
     method: 'post',
-    data: { deviceIds }
+    data: { devices }
   })
 
 /** 解除文档与某个设备的关联 */
@@ -175,9 +183,12 @@ export interface Neo4jNode {
   internalId: number
   labels: string[]
   properties: Record<string, any>
+  relatedDevices?: Array<Record<string, any>>
+  relatedDocuments?: Array<Record<string, any>>
 }
 
 export interface Neo4jRelationship {
+  relInternalId: number
   type: string
   properties: Record<string, any>
   startLabel: string
@@ -232,3 +243,24 @@ export const ragMilvusOverview = () =>
 
 export const ragMilvusChunks = (params: { docId?: string; limit?: number }) =>
   request({ url: `${STORAGE_BASE}/milvus/chunks`, method: 'get', params })
+
+export const ragDeleteNeo4jNode = (internalId: number, label: string) =>
+  request({
+    url: `${STORAGE_BASE}/neo4j/nodes`,
+    method: 'delete',
+    params: { internalId, label }
+  })
+
+export const ragDeleteNeo4jRelationship = (relInternalId: number, type: string) =>
+  request({
+    url: `${STORAGE_BASE}/neo4j/relationships`,
+    method: 'delete',
+    params: { relInternalId, type }
+  })
+
+export const ragDeleteMilvusChunk = (docPk: string) =>
+  request({
+    url: `${STORAGE_BASE}/milvus/chunks`,
+    method: 'delete',
+    params: { docPk }
+  })

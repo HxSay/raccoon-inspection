@@ -86,7 +86,7 @@ public class RagController {
     @PostMapping("/documents/{docId}/devices")
     public HxResult<Void> attachDevices(@PathVariable("docId") @NotBlank String docId,
                                         @RequestBody @Valid RagDeviceAttachRequest request) {
-        ragGraphService.attachDevices(docId, request.getDeviceIds());
+        ragGraphService.attachDevices(docId, request.getDevices());
         return HxResult.success();
     }
 

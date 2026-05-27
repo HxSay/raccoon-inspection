@@ -8,10 +8,11 @@ import {
   ragCleanupOrphans,
   ragAttachDevices,
   ragDetachDevice,
-  ragListDevices,
   type RagDocument,
-  type RagDevice
+  type RagDevice,
+  type RagDeviceAttachInput
 } from '@/api/rag'
+import { cmmsDevicePage, type DeviceInfo } from '@/api/cmms'
 import DeviceSelector from '@/components/rag/DeviceSelector.vue'
 import PdfUploader from '@/components/rag/PdfUploader.vue'
 import PdfPreviewDialog from '@/components/rag/PdfPreviewDialog.vue'
@@ -71,6 +72,7 @@ type UploadStage = 'idle' | 'uploading' | 'processing' | 'done'
 const uploadOpen = ref(false)
 const uploadFile = ref<File | null>(null)
 const uploadDeviceId = ref<string | undefined>(undefined)
+const uploadDevice = ref<RagDevice | undefined>(undefined)
 const uploadDocType = ref<string>('巡检规程')
 const uploading = ref(false)
 const uploadProgress = ref(0)
@@ -110,6 +112,7 @@ const stopElapsedTimer = () => {
 const openUpload = () => {
   uploadFile.value = null
   uploadDeviceId.value = undefined
+  uploadDevice.value = undefined
   uploadDocType.value = '巡检规程'
   uploadProgress.value = 0
   uploadStage.value = 'idle'
@@ -141,6 +144,11 @@ const handleUpload = async () => {
         }
       }
     )
+    // 若上传时选了设备，用 CMMS 主数据补全 Neo4j Device 节点
+    const ingestedDocId = res.data?.docId as string | undefined
+    if (ingestedDocId && uploadDevice.value) {
+      await ragAttachDevices(ingestedDocId, [toAttachInput(uploadDevice.value)])
+    }
     uploadStage.value = 'done'
     uploadProgress.value = 100
     ElMessage.success(res.msg || '入库成功')
@@ -247,26 +255,40 @@ const handleBatchDelete = async () => {
 
 const formatTime = (ts?: number) => (ts ? new Date(ts).toLocaleString() : '-')
 
-// ---------- 多设备关联 ----------
+// ---------- 多设备关联（设备来源：CMMS 设备管理） ----------
 const attachOpen = ref(false)
 const attachTarget = ref<RagDocument | null>(null)
 const attachDeviceIds = ref<string[]>([])
 const attachSubmitting = ref(false)
-const deviceOptions = ref<RagDevice[]>([])
+const cmmsDeviceOptions = ref<DeviceInfo[]>([])
 
-const loadDeviceOptions = async () => {
+const cmmsToRag = (d: DeviceInfo): RagDevice => ({
+  deviceId: d.deviceCode,
+  name: d.deviceName,
+  type: d.model,
+  station: d.location
+})
+
+const toAttachInput = (d: RagDevice): RagDeviceAttachInput => ({
+  deviceId: d.deviceId,
+  name: d.name,
+  type: d.type,
+  station: d.station
+})
+
+const loadCmmsDevices = async () => {
   try {
-    const res: any = await ragListDevices()
-    deviceOptions.value = (res.data as RagDevice[]) ?? []
+    const res: any = await cmmsDevicePage({ page: 1, size: 500 })
+    cmmsDeviceOptions.value = (res.data?.records as DeviceInfo[]) ?? []
   } catch (e: any) {
-    console.warn('加载设备列表失败', e)
+    ElMessage.error('加载设备管理列表失败：' + (e?.message ?? '未知错误'))
   }
 }
 
 const openAttachDialog = async (row: RagDocument) => {
   attachTarget.value = row
   attachDeviceIds.value = []
-  await loadDeviceOptions()
+  await loadCmmsDevices()
   attachOpen.value = true
 }
 
@@ -274,21 +296,28 @@ const submitAttach = async () => {
   if (!attachTarget.value) return
   const ids = (attachDeviceIds.value || []).map((s) => (s || '').trim()).filter(Boolean)
   if (!ids.length) {
-    ElMessage.warning('请至少选择或输入一个设备')
+    ElMessage.warning('请至少选择一个设备')
     return
   }
-  // 过滤掉已经存在的关联，避免无意义请求
   const existing = new Set((attachTarget.value.devices || []).map((d) => d.deviceId))
-  const newOnes = ids.filter((id) => !existing.has(id))
-  if (!newOnes.length) {
+  const newIds = ids.filter((id) => !existing.has(id))
+  if (!newIds.length) {
     ElMessage.info('选中的设备已经全部关联')
     attachOpen.value = false
     return
   }
+  const codeMap = new Map(cmmsDeviceOptions.value.map((d) => [d.deviceCode, d]))
+  const payload: RagDeviceAttachInput[] = newIds.map((id) => {
+    const cmms = codeMap.get(id)
+    if (cmms) {
+      return toAttachInput(cmmsToRag(cmms))
+    }
+    return { deviceId: id }
+  })
   attachSubmitting.value = true
   try {
-    await ragAttachDevices(attachTarget.value.docId, newOnes)
-    ElMessage.success(`已关联 ${newOnes.length} 个设备`)
+    await ragAttachDevices(attachTarget.value.docId, payload)
+    ElMessage.success(`已关联 ${newIds.length} 个设备，并已同步到 Neo4j`)
     attachOpen.value = false
     await handleSearch()
   } catch (e: any) {
@@ -348,11 +377,7 @@ onMounted(handleSearch)
         </el-form-item>
         <el-form-item label="设备">
           <div style="width: 220px">
-            <DeviceSelector
-              v-model="filterDeviceId"
-              placeholder="按设备筛选"
-              allow-create
-            />
+            <DeviceSelector v-model="filterDeviceId" placeholder="按设备管理中的设备筛选" />
           </div>
         </el-form-item>
         <el-form-item>
@@ -461,8 +486,8 @@ onMounted(handleSearch)
         <el-form-item label="关联设备">
           <DeviceSelector
             v-model="uploadDeviceId"
-            placeholder="可输入新的设备 ID 创建关联"
-            allow-create
+            placeholder="请选择设备管理中的设备"
+            @change="(_id, dev) => (uploadDevice = dev)"
           />
         </el-form-item>
         <el-form-item label="文档类型" required>
@@ -534,27 +559,26 @@ onMounted(handleSearch)
         </div>
       </div>
       <el-form label-width="80px">
-        <el-form-item label="新设备" required>
+        <el-form-item label="选择设备" required>
           <el-select
             v-model="attachDeviceIds"
             multiple
             filterable
-            allow-create
-            default-first-option
-            placeholder="可搜索已有设备或直接输入新设备 ID 回车创建"
+            placeholder="从设备管理中选择要关联的设备"
             style="width: 100%"
           >
             <el-option
-              v-for="d in deviceOptions"
-              :key="d.deviceId"
-              :label="d.name ? `${d.name} (${d.deviceId})` : d.deviceId"
-              :value="d.deviceId"
+              v-for="d in cmmsDeviceOptions"
+              :key="d.deviceCode"
+              :disabled="(attachTarget?.devices || []).some((x) => x.deviceId === d.deviceCode)"
+              :label="`${d.deviceName} (${d.deviceCode})${d.location ? ' / ' + d.location : ''}`"
+              :value="d.deviceCode"
             />
           </el-select>
         </el-form-item>
         <el-form-item>
           <span class="attach-tip">
-            支持多选；输入未注册的 deviceId 回车后会作为新设备创建并关联。
+            设备列表来自「设备管理」；关联时将设备主数据（名称、型号、位置）自动写入 Neo4j。
           </span>
         </el-form-item>
       </el-form>

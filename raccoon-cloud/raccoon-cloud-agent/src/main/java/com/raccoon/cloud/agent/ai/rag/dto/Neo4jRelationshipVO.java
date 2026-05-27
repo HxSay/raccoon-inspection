@@ -12,6 +12,9 @@ import java.util.Map;
 @Builder
 public class Neo4jRelationshipVO {
 
+    /** Neo4j 关系内部 ID，用于删除 */
+    private Long relInternalId;
+
     private String type;
 
     private Map<String, Object> properties;

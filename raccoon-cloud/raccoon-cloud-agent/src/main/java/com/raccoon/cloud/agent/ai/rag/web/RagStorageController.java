@@ -10,6 +10,7 @@ import com.raccoon.common.result.HxResult;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -69,5 +70,28 @@ public class RagStorageController {
     public HxResult<List<MilvusChunkVO>> milvusChunks(@RequestParam(value = "docId", required = false) String docId,
                                                       @RequestParam(value = "limit", defaultValue = "50") int limit) {
         return HxResult.success(ragStorageService.listChunks(docId, limit));
+    }
+
+    /** 删除 Neo4j 节点（RAG Document 会联动 Milvus + MinIO） */
+    @DeleteMapping("/neo4j/nodes")
+    public HxResult<Void> deleteNeo4jNode(@RequestParam("internalId") long internalId,
+                                          @RequestParam("label") @NotBlank String label) {
+        ragStorageService.deleteNeo4jNode(internalId, label);
+        return HxResult.success();
+    }
+
+    /** 删除 Neo4j 关系（仅删边，不删节点） */
+    @DeleteMapping("/neo4j/relationships")
+    public HxResult<Void> deleteNeo4jRelationship(@RequestParam("relInternalId") long relInternalId,
+                                                   @RequestParam("type") @NotBlank String type) {
+        ragStorageService.deleteNeo4jRelationship(relInternalId, type);
+        return HxResult.success();
+    }
+
+    /** 删除 Milvus 单条 chunk（按主键 doc_id） */
+    @DeleteMapping("/milvus/chunks")
+    public HxResult<Void> deleteMilvusChunk(@RequestParam("docPk") @NotBlank String docPk) {
+        ragStorageService.deleteMilvusChunk(docPk);
+        return HxResult.success();
     }
 }

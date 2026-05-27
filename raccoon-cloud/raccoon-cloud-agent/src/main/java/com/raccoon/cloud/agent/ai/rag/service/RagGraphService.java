@@ -1,5 +1,6 @@
 package com.raccoon.cloud.agent.ai.rag.service;
 
+import com.raccoon.cloud.agent.ai.rag.dto.RagDeviceAttachRequest;
 import com.raccoon.cloud.agent.ai.rag.dto.RagDeviceContextVO;
 import com.raccoon.cloud.agent.ai.rag.dto.RagDeviceVO;
 import com.raccoon.cloud.agent.ai.rag.dto.RagDocumentVO;
@@ -164,27 +165,45 @@ public class RagGraphService {
         return result;
     }
 
-    /** 给 docId 文档批量关联设备（已存在的关系会被 MERGE 跳过）。 */
-    public void attachDevices(String docId, List<String> deviceIds) {
-        if (!StringUtils.hasText(docId) || deviceIds == null || deviceIds.isEmpty()) {
+    /**
+     * 给 docId 文档批量关联设备：
+     * - 已存在的 Device 节点：补全空字段（保留已有非空值）
+     * - 不存在的 Device 节点：按传入的主数据 MERGE 创建
+     * - HAS_DOCUMENT 关系若已存在则不重复
+     */
+    public void attachDevices(String docId, List<RagDeviceAttachRequest.DeviceInput> devices) {
+        if (!StringUtils.hasText(docId) || devices == null || devices.isEmpty()) {
             return;
         }
-        List<String> sanitized = deviceIds.stream()
-                .filter(StringUtils::hasText)
-                .map(String::trim)
-                .distinct()
-                .toList();
-        if (sanitized.isEmpty()) {
+        // 去重 + 过滤空 deviceId
+        Map<String, Map<String, Object>> dedup = new LinkedHashMap<>();
+        for (RagDeviceAttachRequest.DeviceInput dv : devices) {
+            if (dv == null || !StringUtils.hasText(dv.getDeviceId())) continue;
+            String id = dv.getDeviceId().trim();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("deviceId", id);
+            row.put("name", StringUtils.hasText(dv.getName()) ? dv.getName().trim() : null);
+            row.put("type", StringUtils.hasText(dv.getType()) ? dv.getType().trim() : null);
+            row.put("station", StringUtils.hasText(dv.getStation()) ? dv.getStation().trim() : null);
+            dedup.put(id, row);
+        }
+        if (dedup.isEmpty()) {
             return;
         }
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("docId", docId);
-        params.put("deviceIds", sanitized);
+        params.put("devices", new ArrayList<>(dedup.values()));
         neo4jClient.query("""
                 MATCH (d:Document {docId: $docId})
-                UNWIND $deviceIds AS deviceId
-                MERGE (dev:Device {deviceId: deviceId})
-                  ON CREATE SET dev.name = deviceId, dev.status = '运行中'
+                UNWIND $devices AS dv
+                MERGE (dev:Device {deviceId: dv.deviceId})
+                  ON CREATE SET dev.name = coalesce(dv.name, dv.deviceId),
+                                dev.type = dv.type,
+                                dev.station = dv.station,
+                                dev.status = '运行中'
+                  ON MATCH SET  dev.name = coalesce(dv.name, dev.name),
+                                dev.type = coalesce(dv.type, dev.type),
+                                dev.station = coalesce(dv.station, dev.station)
                 MERGE (dev)-[:HAS_DOCUMENT]->(d)
                 """)
                 .bindAll(params)

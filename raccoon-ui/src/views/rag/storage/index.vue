@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ragNeo4jOverview,
   ragNeo4jSchema,
@@ -8,6 +8,9 @@ import {
   ragNeo4jRelationships,
   ragMilvusOverview,
   ragMilvusChunks,
+  ragDeleteNeo4jNode,
+  ragDeleteNeo4jRelationship,
+  ragDeleteMilvusChunk,
   type Neo4jOverview,
   type Neo4jNode,
   type Neo4jRelationship,
@@ -132,6 +135,72 @@ const formatProps = (obj: Record<string, any>) => {
   }
 }
 
+const formatDeviceTag = (d: Record<string, any>) =>
+  d.name ? `${d.name} (${d.deviceId})` : String(d.deviceId || '-')
+
+const formatDocTag = (d: Record<string, any>) =>
+  d.fileName ? `${d.fileName}` : String(d.docId || '-')
+
+const handleDeleteNode = async (row: Neo4jNode) => {
+  const label = row.labels?.[0] || neoLabel.value
+  const isRagDoc =
+    label === 'Document' &&
+    (row.properties?.docId || row.properties?.minioPath || row.properties?.fileName)
+  const tip = isRagDoc
+    ? '该 Document 为 RAG 入库文档，将联动删除 Milvus 向量与 MinIO 文件，是否继续？'
+    : `确定删除 Neo4j 节点 [${label}#${row.internalId}]？`
+  try {
+    await ElMessageBox.confirm(tip, '删除确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await ragDeleteNeo4jNode(row.internalId, label)
+    ElMessage.success('已删除')
+    await refreshNeo4j()
+  } catch (e: any) {
+    ElMessage.error('删除失败：' + (e?.message ?? '未知错误'))
+  }
+}
+
+const handleDeleteRel = async (row: Neo4jRelationship) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除关系 [${row.type}] #${row.relInternalId}？（仅删边，不删节点）`,
+      '删除确认',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await ragDeleteNeo4jRelationship(row.relInternalId, row.type)
+    ElMessage.success('已删除关系')
+    await loadNeoList()
+    await loadNeoOverview()
+  } catch (e: any) {
+    ElMessage.error('删除失败：' + (e?.message ?? '未知错误'))
+  }
+}
+
+const handleDeleteChunk = async (row: MilvusChunk) => {
+  try {
+    await ElMessageBox.confirm(`确定删除 Milvus chunk [${row.docPk}]？`, '删除确认', {
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+  try {
+    await ragDeleteMilvusChunk(row.docPk)
+    ElMessage.success('已删除')
+    await loadMilvusChunks()
+    await loadMilvusStats()
+  } catch (e: any) {
+    ElMessage.error('删除失败：' + (e?.message ?? '未知错误'))
+  }
+}
+
 watch(activeTab, (v) => {
   if (v === 'milvus' && !milvusStats.value) {
     refreshMilvus()
@@ -245,9 +314,52 @@ onMounted(refreshNeo4j)
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="Properties" min-width="380">
+            <el-table-column
+              v-if="neoLabel === 'Document'"
+              label="关联设备"
+              min-width="220"
+            >
+              <template #default="{ row }: { row: Neo4jNode }">
+                <div v-if="(row.relatedDevices || []).length" class="tag-list">
+                  <el-tag
+                    v-for="d in row.relatedDevices"
+                    :key="d.deviceId"
+                    type="primary"
+                    size="small"
+                  >
+                    {{ formatDeviceTag(d) }}
+                  </el-tag>
+                </div>
+                <span v-else class="muted">未关联</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              v-if="neoLabel === 'Device'"
+              label="关联文档"
+              min-width="220"
+            >
+              <template #default="{ row }: { row: Neo4jNode }">
+                <div v-if="(row.relatedDocuments || []).length" class="tag-list">
+                  <el-tag
+                    v-for="d in row.relatedDocuments"
+                    :key="d.docId"
+                    type="info"
+                    size="small"
+                  >
+                    {{ formatDocTag(d) }}
+                  </el-tag>
+                </div>
+                <span v-else class="muted">未关联</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="Properties" min-width="320">
               <template #default="{ row }: { row: Neo4jNode }">
                 <pre class="props-pre">{{ formatProps(row.properties) }}</pre>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }: { row: Neo4jNode }">
+                <el-button link type="danger" @click="handleDeleteNode(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
@@ -284,15 +396,23 @@ onMounted(refreshNeo4j)
                 <pre class="props-pre small">{{ formatProps(row.endNode) }}</pre>
               </template>
             </el-table-column>
-            <el-table-column label="关系属性" min-width="180">
+            <el-table-column label="关系属性" min-width="160">
               <template #default="{ row }: { row: Neo4jRelationship }">
                 <pre class="props-pre small">{{ formatProps(row.properties) }}</pre>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }: { row: Neo4jRelationship }">
+                <el-button link type="danger" @click="handleDeleteRel(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
               <el-empty description="未查询到关系" />
             </template>
           </el-table>
+          <p v-if="neoView === 'node' && neoLabel === 'Document'" class="table-tip">
+            关联设备通过 HAS_DOCUMENT 关系查询；也可切换到「关系」视图查看 Device → Document 明细。
+          </p>
         </el-card>
       </el-tab-pane>
 
@@ -374,7 +494,7 @@ onMounted(refreshNeo4j)
                 <div class="content-cell">{{ row.content }}</div>
               </template>
             </el-table-column>
-            <el-table-column label="metadata" width="200">
+            <el-table-column label="metadata" width="120">
               <template #default="{ row }: { row: MilvusChunk }">
                 <el-popover :width="500" trigger="hover" placement="left">
                   <template #reference>
@@ -382,6 +502,11 @@ onMounted(refreshNeo4j)
                   </template>
                   <pre class="props-pre">{{ formatProps(row.metadata) }}</pre>
                 </el-popover>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }: { row: MilvusChunk }">
+                <el-button link type="danger" @click="handleDeleteChunk(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
@@ -500,6 +625,23 @@ onMounted(refreshNeo4j)
   font-weight: 500;
   color: #606266;
   margin-bottom: 8px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.muted {
+  color: #909399;
+  font-size: 13px;
+}
+
+.table-tip {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #909399;
 }
 
 @media (max-width: 1200px) {

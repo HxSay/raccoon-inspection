@@ -245,8 +245,7 @@ onMounted(() => {
             <div style="width: 260px">
               <DeviceSelector
                 :model-value="activeSession?.deviceId"
-                placeholder="（可选）指定设备过滤"
-                allow-create
+                placeholder="（可选）从设备管理中选择"
                 @change="onDeviceChange"
               />
             </div>
