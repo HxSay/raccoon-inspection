@@ -1,9 +1,12 @@
 package com.raccoon.cloud.drone.web;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.raccoon.cloud.drone.dto.InspectionRobotRuntimeVO;
 import com.raccoon.cloud.drone.dto.InspectionRobotSaveRequest;
+import com.raccoon.cloud.drone.dto.InspectionRobotTelemetryReport;
 import com.raccoon.cloud.drone.dto.InspectionRobotVO;
 import com.raccoon.cloud.drone.dto.InspectionSceneVO;
+import com.raccoon.cloud.drone.service.InspectionRobotRuntimeService;
 import com.raccoon.cloud.drone.service.InspectionRobotService;
 import com.raccoon.common.result.HxResult;
 import jakarta.validation.Valid;
@@ -26,6 +29,7 @@ import java.util.List;
 public class InspectionRobotController {
 
     private final InspectionRobotService inspectionRobotService;
+    private final InspectionRobotRuntimeService inspectionRobotRuntimeService;
 
     @GetMapping("/page")
     public HxResult<Page<InspectionRobotVO>> page(
@@ -77,5 +81,24 @@ public class InspectionRobotController {
     public HxResult<Void> delete(@PathVariable Long id) {
         inspectionRobotService.delete(id);
         return HxResult.success(null);
+    }
+
+    /** 边缘/仿真上报实时状态（位置10Hz、电量/负载1Hz、运行10Hz 由终端分 channel 上报） */
+    @PostMapping("/telemetry")
+    public HxResult<Void> reportTelemetry(@Valid @RequestBody InspectionRobotTelemetryReport report) {
+        inspectionRobotRuntimeService.report(report);
+        return HxResult.success(null);
+    }
+
+    @PostMapping("/telemetry/batch")
+    public HxResult<Void> reportTelemetryBatch(@Valid @RequestBody List<InspectionRobotTelemetryReport> reports) {
+        inspectionRobotRuntimeService.reportBatch(reports);
+        return HxResult.success(null);
+    }
+
+    @GetMapping("/{id}/runtime")
+    public HxResult<InspectionRobotRuntimeVO> getRuntime(@PathVariable Long id) {
+        InspectionRobotVO robot = inspectionRobotService.getById(id);
+        return HxResult.success(robot.getRuntime());
     }
 }

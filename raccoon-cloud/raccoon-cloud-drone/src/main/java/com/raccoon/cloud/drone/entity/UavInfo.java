@@ -30,4 +30,7 @@ public class UavInfo {
     private Long mapId;
     private Integer status;
     private String remark;
+
+    /** 静态作业范围描述 */
+    private String workRangeDesc;
 }

@@ -2,6 +2,7 @@ package com.raccoon.cloud.drone.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.raccoon.cloud.drone.dto.InspectionRobotRuntimeVO;
 import com.raccoon.cloud.drone.dto.InspectionRobotSaveRequest;
 import com.raccoon.cloud.drone.dto.InspectionRobotVO;
 import com.raccoon.cloud.drone.dto.InspectionSceneVO;
@@ -10,6 +11,7 @@ import com.raccoon.cloud.drone.entity.UavMap;
 import com.raccoon.cloud.drone.enums.InspectionRobotTypeEnum;
 import com.raccoon.cloud.drone.mapper.UavInfoMapper;
 import com.raccoon.cloud.drone.mapper.UavMapMapper;
+import com.raccoon.cloud.drone.service.InspectionRobotRuntimeService;
 import com.raccoon.cloud.drone.service.InspectionRobotService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -27,6 +30,7 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
 
     private final UavInfoMapper uavInfoMapper;
     private final UavMapMapper uavMapMapper;
+    private final InspectionRobotRuntimeService runtimeService;
 
     @Override
     public Page<InspectionRobotVO> page(long current, long size, Long mapId, String robotType, String keyword) {
@@ -34,7 +38,7 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
         Page<UavInfo> raw = uavInfoMapper.selectPage(new Page<>(current, size), w);
         Map<Long, UavMap> mapCache = loadMapCache();
         Page<InspectionRobotVO> vo = new Page<>(raw.getCurrent(), raw.getSize(), raw.getTotal());
-        vo.setRecords(raw.getRecords().stream().map(r -> toVo(r, mapCache)).toList());
+        vo.setRecords(enrichVoList(raw.getRecords(), mapCache));
         return vo;
     }
 
@@ -57,7 +61,7 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
             s.setRemark(m.getRemark());
             List<UavInfo> list = byMap.getOrDefault(m.getId(), List.of());
             s.setRobotCount(list.size());
-            s.setRobots(list.stream().map(r -> toVo(r, Map.of(m.getId(), m))).toList());
+            s.setRobots(enrichVoList(list, Map.of(m.getId(), m)));
             scenes.add(s);
         }
         return scenes;
@@ -73,7 +77,7 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
                         .eq(UavInfo::getMapId, mapId)
                         .orderByAsc(UavInfo::getId));
         Map<Long, UavMap> mapCache = loadMapCache();
-        return list.stream().map(r -> toVo(r, mapCache)).toList();
+        return enrichVoList(list, mapCache);
     }
 
     @Override
@@ -93,7 +97,7 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
                         .eq(UavInfo::getStatus, 1)
                         .orderByAsc(UavInfo::getId));
         Map<Long, UavMap> mapCache = maps.stream().collect(Collectors.toMap(UavMap::getId, m -> m));
-        return list.stream().map(r -> toVo(r, mapCache)).toList();
+        return enrichVoList(list, mapCache);
     }
 
     @Override
@@ -128,6 +132,7 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
         row.setSceneZ(request.getSceneZ());
         row.setStatus(request.getStatus() != null ? request.getStatus() : 1);
         row.setRemark(request.getRemark());
+        row.setWorkRangeDesc(request.getWorkRangeDesc());
 
         if (request.getId() == null) {
             uavInfoMapper.insert(row);
@@ -177,6 +182,24 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
                 .collect(Collectors.toMap(UavMap::getId, m -> m));
     }
 
+    private List<InspectionRobotVO> enrichVoList(List<UavInfo> robots, Map<Long, UavMap> mapCache) {
+        Map<Long, String> workRanges = new HashMap<>();
+        List<Long> ids = new ArrayList<>();
+        for (UavInfo r : robots) {
+            ids.add(r.getId());
+            workRanges.put(r.getId(), r.getWorkRangeDesc());
+        }
+        Map<Long, InspectionRobotRuntimeVO> runtimeMap = runtimeService.getRuntimeMap(ids, workRanges);
+        List<InspectionRobotVO> result = new ArrayList<>();
+        for (UavInfo r : robots) {
+            InspectionRobotVO vo = toVo(r, mapCache);
+            vo.setWorkRangeDesc(r.getWorkRangeDesc());
+            vo.setRuntime(runtimeMap.get(r.getId()));
+            result.add(vo);
+        }
+        return result;
+    }
+
     private InspectionRobotVO toVo(UavInfo r, Map<Long, UavMap> mapCache) {
         InspectionRobotVO vo = new InspectionRobotVO();
         vo.setId(r.getId());
@@ -192,11 +215,13 @@ public class InspectionRobotServiceImpl implements InspectionRobotService {
         vo.setSceneZ(r.getSceneZ());
         vo.setStatus(r.getStatus());
         vo.setRemark(r.getRemark());
+        vo.setWorkRangeDesc(r.getWorkRangeDesc());
         if (r.getMapId() != null && mapCache.containsKey(r.getMapId())) {
             UavMap m = mapCache.get(r.getMapId());
             vo.setMapName(m.getMapName());
             vo.setSceneType(m.getSceneType());
         }
+        vo.setRuntime(runtimeService.getRuntime(r.getId(), r.getWorkRangeDesc()));
         return vo;
     }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   inspectionRobotScenes,
@@ -33,8 +33,11 @@ const form = reactive({
   sceneY: undefined as number | undefined,
   sceneZ: undefined as number | undefined,
   status: 1,
-  remark: ''
+  remark: '',
+  workRangeDesc: ''
 })
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const rules: FormRules = {
   uavName: [{ required: true, message: '请输入名称', trigger: 'blur' }],
@@ -79,6 +82,7 @@ const resetForm = () => {
   form.sceneZ = undefined
   form.status = 1
   form.remark = ''
+  form.workRangeDesc = ''
 }
 
 const openCreate = () => {
@@ -101,6 +105,7 @@ const openEdit = (row: InspectionRobotVO) => {
   form.sceneZ = row.sceneZ
   form.status = row.status ?? 1
   form.remark = row.remark ?? ''
+  form.workRangeDesc = row.workRangeDesc ?? ''
   dialogTitle.value = '编辑巡检机器人'
   dialogVisible.value = true
 }
@@ -141,7 +146,22 @@ const remove = async (row: InspectionRobotVO) => {
 
 const robotTypeLabel = (t: string) => ROBOT_TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t
 
-onMounted(loadScenes)
+const flightTagType = (row: InspectionRobotVO) => {
+  const r = row.runtime
+  if (!r?.online) return 'info'
+  if (r.faultStatus === 'FAULT') return 'danger'
+  if (r.flightStatus === 'FLYING' || r.flightStatus === 'RTH') return 'warning'
+  return 'success'
+}
+
+onMounted(() => {
+  loadScenes()
+  refreshTimer = setInterval(() => loadScenes(), 3000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 </script>
 
 <template>
@@ -150,7 +170,7 @@ onMounted(loadScenes)
       <div>
         <h2 class="page-title">巡检机器人管理</h2>
         <p class="page-desc">
-          管理无人机、机器狗、地面巡检机器人等，绑定虚拟场景；场景标记将显示在仿真中便于识别。
+          管理无人机、机器狗等并展示实时状态（位置/电量/负载/运行），供中央 Agent 决策；仿真运行中每 3 秒自动刷新。
         </p>
       </div>
       <el-button type="primary" :disabled="!selectedSceneId" @click="openCreate">
@@ -192,33 +212,68 @@ onMounted(loadScenes)
           <div class="robot-panel__head">
             <span>{{ selectedScene.mapName }} · 机器人列表</span>
           </div>
-          <el-table :data="robotsInScene" stripe border size="small">
-            <el-table-column label="场景标记" width="110" align="center">
+          <el-table :data="robotsInScene" stripe border size="small" row-key="id">
+            <el-table-column type="expand" width="40">
               <template #default="{ row }">
-                <span
-                  class="marker-badge"
-                  :style="{ background: row.markerColor, borderColor: row.markerColor }"
-                >
+                <div class="runtime-detail">
+                  <div class="runtime-block">
+                    <div class="runtime-block__title">位置信息 <span class="hz">10Hz</span></div>
+                    <div v-if="row.runtime?.longitude != null">
+                      {{ row.runtime.longitude }}, {{ row.runtime.latitude }}, {{ row.runtime.height }} m
+                      <span class="text-muted"> · {{ row.runtime.positionAt || '—' }}</span>
+                    </div>
+                    <span v-else class="text-muted">暂无上报</span>
+                  </div>
+                  <div class="runtime-block">
+                    <div class="runtime-block__title">电量状态 <span class="hz">1Hz</span></div>
+                    <div v-if="row.runtime?.batteryPct != null">
+                      {{ row.runtime.batteryPct }}% · 预计续航 {{ row.runtime.enduranceMin ?? '—' }} 分钟
+                    </div>
+                    <span v-else class="text-muted">暂无</span>
+                  </div>
+                  <div class="runtime-block">
+                    <div class="runtime-block__title">负载状态 <span class="hz">1Hz</span></div>
+                    <div v-if="row.runtime?.cpuPct != null">
+                      任务 {{ row.runtime.assignedTaskCount ?? 0 }} · CPU {{ row.runtime.cpuPct }}% · 内存
+                      {{ row.runtime.memoryPct }}%
+                    </div>
+                    <span v-else class="text-muted">暂无</span>
+                  </div>
+                  <div class="runtime-block">
+                    <div class="runtime-block__title">作业范围 <span class="hz">静态</span></div>
+                    {{ row.workRangeDesc || row.runtime?.workRangeDesc || '未配置' }}
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="标记" width="96" align="center">
+              <template #default="{ row }">
+                <span class="marker-badge" :style="{ background: row.markerColor, borderColor: row.markerColor }">
                   {{ row.markerLabel }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="uavName" label="名称" min-width="140" />
-            <el-table-column label="类型" width="120">
-              <template #default="{ row }">{{ robotTypeLabel(row.robotType) }}</template>
-            </el-table-column>
-            <el-table-column prop="uavCode" label="编码" width="100" />
-            <el-table-column label="场景坐标 (X,Y,Z)" min-width="160">
+            <el-table-column prop="uavName" label="名称" min-width="120" />
+            <el-table-column label="运行" width="100" align="center">
               <template #default="{ row }">
-                <span v-if="row.sceneX != null">{{ row.sceneX }}, {{ row.sceneY }}, {{ row.sceneZ }}</span>
-                <span v-else class="text-muted">默认机位</span>
+                <el-tag :type="flightTagType(row)" size="small">
+                  {{ row.runtime?.online ? row.runtime.flightStatusLabel || '在线' : '离线' }}
+                </el-tag>
+                <div v-if="row.runtime?.faultStatus && row.runtime.faultStatus !== 'NONE'" class="fault-line">
+                  {{ row.runtime.faultStatus }}
+                </div>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="72" align="center">
+            <el-table-column label="电量" width="88" align="center">
               <template #default="{ row }">
-                <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
-                  {{ row.status === 1 ? '启用' : '停用' }}
-                </el-tag>
+                <span v-if="row.runtime?.batteryPct != null">{{ row.runtime.batteryPct }}%</span>
+                <span v-else>—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="负载" width="100" align="center">
+              <template #default="{ row }">
+                <span v-if="row.runtime?.cpuPct != null">CPU {{ row.runtime.cpuPct }}%</span>
+                <span v-else>—</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="120" fixed="right" align="center">
@@ -276,6 +331,14 @@ onMounted(loadScenes)
             <el-radio :value="1">启用</el-radio>
             <el-radio :value="0">停用</el-radio>
           </el-radio-group>
+        </el-form-item>
+        <el-form-item label="作业范围">
+          <el-input
+            v-model="form.workRangeDesc"
+            type="textarea"
+            :rows="2"
+            placeholder="静态可覆盖区域描述，供 Agent 决策"
+          />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
@@ -415,5 +478,27 @@ onMounted(loadScenes)
 }
 .w-full {
   width: 100%;
+}
+.runtime-detail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 8px 12px 12px;
+  font-size: 12px;
+}
+.runtime-block__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #303133;
+}
+.hz {
+  font-weight: normal;
+  color: #909399;
+  font-size: 11px;
+}
+.fault-line {
+  font-size: 10px;
+  color: #f56c6c;
+  margin-top: 2px;
 }
 </style>

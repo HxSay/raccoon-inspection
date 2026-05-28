@@ -31,4 +31,5 @@ public class InspectionRobotSaveRequest {
 
     private Integer status = 1;
     private String remark;
+    private String workRangeDesc;
 }

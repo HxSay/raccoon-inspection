@@ -2,6 +2,27 @@ import request from '@/utils/request'
 
 export type InspectionRobotType = 'UAV' | 'ROBOT_DOG' | 'GROUND_ROBOT' | 'WHEELED'
 
+export interface InspectionRobotRuntimeVO {
+  longitude?: number
+  latitude?: number
+  height?: number
+  positionAt?: string
+  batteryPct?: number
+  enduranceMin?: number
+  batteryAt?: string
+  assignedTaskCount?: number
+  cpuPct?: number
+  memoryPct?: number
+  loadAt?: string
+  online?: boolean
+  flightStatus?: string
+  flightStatusLabel?: string
+  faultStatus?: string
+  faultMessage?: string
+  runtimeAt?: string
+  workRangeDesc?: string
+}
+
 export interface InspectionRobotVO {
   id?: number
   uavName: string
@@ -18,6 +39,8 @@ export interface InspectionRobotVO {
   sceneZ?: number
   status?: number
   remark?: string
+  workRangeDesc?: string
+  runtime?: InspectionRobotRuntimeVO
 }
 
 export interface InspectionSceneVO {
@@ -42,6 +65,7 @@ export interface InspectionRobotSaveRequest {
   sceneZ?: number
   status?: number
   remark?: string
+  workRangeDesc?: string
 }
 
 export const ROBOT_TYPE_OPTIONS = [

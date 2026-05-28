@@ -20,4 +20,10 @@ public class InspectionRobotVO {
     private Double sceneZ;
     private Integer status;
     private String remark;
+
+    /** 静态作业范围 */
+    private String workRangeDesc;
+
+    /** 实时状态（位置/电量/负载/运行） */
+    private InspectionRobotRuntimeVO runtime;
 }

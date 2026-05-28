@@ -52,6 +52,11 @@ import EditorProperties from '@/components/EditorProperties.vue'
 import SimControlPanel from '@/components/SimControlPanel.vue'
 import { fetchRobotsBySceneType, type InspectionRobotVO } from '@/api/inspectionRobot'
 import { syncFieldDevicesFromEditor } from '@/api/fieldSceneDevice'
+import {
+  reportRobotBattery1Hz,
+  reportRobotLoad1Hz,
+  reportRobotPosition10Hz
+} from '@/api/inspectionRobotTelemetry'
 import { attachRobotLabel, type RobotLabelHandle } from '@/sim/robotLabelMarkers'
 import {
   MSG_INSPECTION_DISPATCH,
@@ -253,6 +258,8 @@ let controls: OrbitControls | null = null
 let patrolDrones: M300DroneModel[] = []
 let patrolRobotLabels: RobotLabelHandle[] = []
 let patrolRobotConfigs: InspectionRobotVO[] = []
+/** 与 patrolDrones 下标对应的云端机器人 ID */
+let patrolFleetUavIds: number[] = []
 let nest: DroneNest | null = null
 let terminal: EdgeTerminal3D | null = null
 /** 每架巡逻机独立遥测通道（避免一机结束 stop 掉共享 10Hz 定时器） */
@@ -457,9 +464,50 @@ function getRtkForCheck() {
   return simulateRtkLost.value ? 0 : 2
 }
 
+function runtimeFaultOpts() {
+  if (simulateDisconnect.value) {
+    return { faultStatus: 'FAULT', faultMessage: '通信中断' }
+  }
+  if (simulateLowBattery.value) {
+    return { faultStatus: 'WARNING', faultMessage: '低电量' }
+  }
+  return { faultStatus: 'NONE' as const }
+}
+
 function onTelemetry(t: TelemetryPayload) {
   telemetry.value = t
   offlineBufferHint.value = stateReports.reduce((a, s) => a + s.getBufferedCount(), 0)
+  if (sceneTab.value !== 'patrol') return
+  const uavId = patrolFleetUavIds[0] ?? routeFetchUavId.value ?? 1
+  const online = !simulateDisconnect.value
+  reportRobotPosition10Hz(uavId, t, online, runtimeFaultOpts())
+  const enduranceMin = Math.max(1, Math.round((t.batteryPercent / 12) * 10))
+  reportRobotBattery1Hz(uavId, t.batteryPercent, enduranceMin)
+}
+
+/** 编队中非任务机的待机位姿上报（任务机由 onTelemetry 覆盖） */
+function reportPatrolFleetStandby() {
+  if (sceneTab.value !== 'patrol' || patrolDrones.length < 2) return
+  const online = !simulateDisconnect.value
+  const fault = runtimeFaultOpts()
+  patrolDrones.forEach((d, i) => {
+    if (i === 0) return
+    const uavId = patrolFleetUavIds[i] ?? i + 1
+    const p = d.root.position
+    const telem: TelemetryPayload = {
+      t: Date.now(),
+      position: { x: p.x, y: p.y, z: p.z },
+      altitudeM: p.y,
+      batteryPercent: batteryPercent.value,
+      speedMps: 0,
+      rtkMode: getRtkForCheck(),
+      missionProgress: 0,
+      phase: 'STANDBY'
+    }
+    reportRobotPosition10Hz(uavId, telem, online, fault)
+    const enduranceMin = Math.max(1, Math.round((telem.batteryPercent / 12) * 10))
+    reportRobotBattery1Hz(uavId, telem.batteryPercent, enduranceMin)
+  })
 }
 
 function notifyParent(payload: Record<string, unknown>) {
@@ -726,6 +774,7 @@ async function setupPatrolFleet(scene: THREE.Scene, corridorHomes: THREE.Vector3
   }
   const fleet = patrolRobotConfigs.filter((r) => r.robotType === 'UAV')
   const count = fleet.length > 0 ? fleet.length : Math.max(1, corridorHomes.length)
+  patrolFleetUavIds = fleet.length > 0 ? fleet.map((r) => r.id) : [1]
 
   for (let i = 0; i < count; i++) {
     const d = new M300DroneModel()
@@ -871,6 +920,14 @@ function initThree(): () => void {
     const dt = clock.getDelta()
     nest?.tick(dt)
     edgeMetrics.value = edgeSim.tick(dt)
+    if (sceneTab.value === 'patrol' && patrolFleetUavIds.length) {
+      reportPatrolFleetStandby()
+      patrolFleetUavIds.forEach((uavId, i) => {
+        const mem = edgeMetrics.value.storagePercent
+        const tasks = i === 0 && activeMissionMeta.value?.taskId ? 1 : 0
+        reportRobotLoad1Hz(uavId, edgeMetrics.value.cpuPercent, mem, tasks)
+      })
+    }
     patrolDrones.forEach((d) => d.tick(dt))
     if (sceneTab.value === 'thermal') robotDog?.tick(dt)
     controls?.update()
