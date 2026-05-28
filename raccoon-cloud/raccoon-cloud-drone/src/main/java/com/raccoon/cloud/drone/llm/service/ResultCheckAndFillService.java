@@ -6,6 +6,7 @@ import com.raccoon.cloud.drone.llm.catalog.InspectionCatalogService;
 import com.raccoon.cloud.drone.llm.enums.PriorityEnum;
 import com.raccoon.cloud.drone.llm.enums.TaskTypeEnum;
 import com.raccoon.cloud.drone.llm.model.LlmTaskSlotResult;
+import com.raccoon.cloud.drone.llm.util.InspectionSlotNormalizer;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,7 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * 槽位校验、自动补全、缺失追问。
@@ -25,6 +27,9 @@ public class ResultCheckAndFillService {
 
     @Autowired
     private InspectionCatalogService catalogService;
+
+    @Autowired
+    private InspectionSlotNormalizer slotNormalizer;
 
     @Data
     public static class CheckResult {
@@ -37,8 +42,20 @@ public class ResultCheckAndFillService {
     }
 
     public CheckResult checkAndFill(LlmTaskSlotResult slots) {
+        return checkAndFill(slots, null);
+    }
+
+    /**
+     * 槽位校验与补全；可传入用户原文以识别「所有杆塔」等全量巡检意图。
+     */
+    public CheckResult checkAndFill(LlmTaskSlotResult slots, String userInput) {
         CheckResult result = new CheckResult();
         result.setSlots(slots);
+
+        if (StringUtils.hasText(userInput) && !Boolean.TRUE.equals(slots.getInspectAllDevices())
+                && slotNormalizer.isInspectAllDevicesIntent(userInput)) {
+            slots.setInspectAllDevices(true);
+        }
 
         if (!StringUtils.hasText(slots.getTaskType())) {
             slots.setTaskType(TaskTypeEnum.REGULAR.name());
@@ -64,7 +81,11 @@ public class ResultCheckAndFillService {
         }
 
         if (slots.getDeviceNames() == null || slots.getDeviceNames().isEmpty()) {
-            missing.add("巡检设备列表（deviceNames）");
+            if (Boolean.TRUE.equals(slots.getInspectAllDevices()) && result.getResolvedMapId() != null) {
+                fillAllDevicesInArea(slots, result, userInput);
+            } else {
+                missing.add("巡检设备列表（deviceNames）");
+            }
         } else if (result.getResolvedMapId() != null) {
             List<UavInspectionDevice> devices = catalogService.findDevicesByMapAndNames(
                     result.getResolvedMapId(), slots.getDeviceNames());
@@ -87,5 +108,43 @@ public class ResultCheckAndFillService {
         }
 
         return result;
+    }
+
+    /**
+     * 「所有杆塔/全部设备」：自动展开场景内全部启用设备，优先杆塔类。
+     */
+    private void fillAllDevicesInArea(LlmTaskSlotResult slots, CheckResult result, String userInput) {
+        List<UavInspectionDevice> all = catalogService.listDevicesByMap(result.getResolvedMapId());
+        if (all.isEmpty()) {
+            log.warn("inspectAllDevices=true 但场景 mapId={} 无设备", result.getResolvedMapId());
+            return;
+        }
+        boolean towerOnly = userInput != null
+                && (userInput.contains("杆塔") || userInput.contains("塔杆"))
+                && !userInput.contains("设备");
+        List<UavInspectionDevice> picked = all;
+        if (towerOnly) {
+            picked = all.stream()
+                    .filter(d -> d.getDeviceType() != null
+                            && ("TOWER".equalsIgnoreCase(d.getDeviceType())
+                            || "tower".equalsIgnoreCase(d.getDeviceType())))
+                    .collect(Collectors.toList());
+            if (picked.isEmpty()) {
+                picked = all.stream()
+                        .filter(d -> d.getDeviceName() != null && d.getDeviceName().contains("杆塔"))
+                        .collect(Collectors.toList());
+            }
+        }
+        if (picked.isEmpty()) {
+            picked = all;
+        }
+        result.setResolvedDevices(picked);
+        List<String> names = new ArrayList<>();
+        for (UavInspectionDevice d : picked) {
+            names.add(d.getDeviceName());
+        }
+        slots.setDeviceNames(names);
+        log.info("已自动展开全量巡检设备 mapId={} count={} names={}",
+                result.getResolvedMapId(), names.size(), names);
     }
 }

@@ -37,7 +37,7 @@ public class NlpTaskParseFacadeService {
 
         LlmTaskSlotResult slots = llmTaskParseService.parse(cleaned);
         slotNormalizer.enrich(cleaned, slots);
-        CheckResult check = resultCheckAndFillService.checkAndFill(slots);
+        CheckResult check = resultCheckAndFillService.checkAndFill(slots, cleaned);
 
         NlpTaskParseResponse response = new NlpTaskParseResponse();
         response.setSlots(check.getSlots());

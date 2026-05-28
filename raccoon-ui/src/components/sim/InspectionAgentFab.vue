@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { dispatchTaskGenerate } from '@/api/droneDispatch'
 import { nlpTaskParse, type NlpTaskParseResponse } from '@/api/droneNlp'
+import type { UavRouteDispatchPayload } from '@/api/drone'
 import ChatBubble from '@/components/rag/ChatBubble.vue'
 import {
   formatTaskSummary,
@@ -153,6 +155,39 @@ const sendMessage = async () => {
 
   sending.value = true
   try {
+    let dispatchPayload: UavRouteDispatchPayload | null = null
+    let summaryLines: string[] = []
+    let parseSource = ''
+
+    // 1) 调度中枢：自动分派终端 + 全局路径规划
+    try {
+      const hubRes: any = await dispatchTaskGenerate({
+        userInput: text,
+        enableSimulation: true,
+        autoDispatch: true
+      })
+      const hub = hubRes.data
+      if (hub?.assigned && hub?.workOrder?.payload) {
+        dispatchPayload = hub.workOrder.payload
+        parseSource = '调度中枢'
+        summaryLines = [
+          `任务：${hub.taskId ?? '—'}`,
+          `分派终端：${hub.assignedTerminalName ?? hub.assignedTerminalId ?? '—'}`,
+          hub.bidPrice != null ? `竞拍价：${hub.bidPrice.toFixed(3)}` : '',
+          hub.priority ? `优先级：${hub.priority}` : '',
+          hub.pathPlan?.distanceM != null
+            ? `航程：${hub.pathPlan.distanceM.toFixed(1)} m / ${hub.pathPlan.durationSec ?? '—'} s`
+            : ''
+        ].filter(Boolean) as string[]
+      } else if (hub?.message && hub.message !== 'OK') {
+        summaryLines.push(`调度提示：${hub.message}`)
+      }
+    } catch (hubErr: unknown) {
+      const msg = hubErr instanceof Error ? hubErr.message : String(hubErr)
+      summaryLines.push(`调度中枢暂不可用（${msg}），将使用 NLP 解析…`)
+    }
+
+    // 2) NLP 解析兜底（含「所有杆塔」自动展开）
     const res: any = await nlpTaskParse(text)
     const data = res.data as NlpTaskParseResponse
 
@@ -161,15 +196,22 @@ const sendMessage = async () => {
       return
     }
 
-    if (!data?.task) {
+    if (!data?.task && !dispatchPayload) {
       assistantMsg.content = '解析失败：未生成巡检任务，请换种说法重试。'
       assistantMsg.error = assistantMsg.content
       return
     }
 
-    const summary = formatTaskSummary(data.task, data.slots)
-    const source = data.parseSource === 'RULE' ? '规则解析' : 'LLM 解析'
-    assistantMsg.content = `已理解巡检意图（${source}）：\n${summary}\n\n正在向仿真无人机下发航线…`
+    if (!dispatchPayload && data?.task) {
+      dispatchPayload = inspectionTaskToDispatch(data.task)
+      const summary = formatTaskSummary(data.task, data.slots)
+      parseSource = data.parseSource === 'RULE' ? '规则解析' : 'LLM 解析'
+      summaryLines = [`已理解巡检意图（${parseSource}）：`, summary]
+    }
+
+    assistantMsg.content =
+      (summaryLines.length ? summaryLines.join('\n') : '任务已生成') +
+      '\n\n正在向仿真无人机下发航线…'
 
     if (!props.simIframe) {
       assistantMsg.content += '\n\n（仿真 iframe 未就绪，无法启动飞行）'
@@ -177,8 +219,7 @@ const sendMessage = async () => {
       return
     }
 
-    const dispatch = inspectionTaskToDispatch(data.task)
-    const posted = postDispatchToSimIframe(props.simIframe, dispatch, {
+    const posted = postDispatchToSimIframe(props.simIframe, dispatchPayload!, {
       autoStart: true,
       userInput: text
     })

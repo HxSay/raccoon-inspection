@@ -90,6 +90,17 @@ public class RuleParseService {
     }
 
     private List<String> matchDeviceNames(String text, Long mapId) {
+        if (slotNormalizer.isInspectAllDevicesIntent(text)) {
+            List<String> all = new ArrayList<>();
+            for (UavInspectionDevice d : catalogService.listDevicesByMap(mapId)) {
+                if (d.getDeviceName() != null && !all.contains(d.getDeviceName())) {
+                    all.add(d.getDeviceName());
+                }
+            }
+            if (!all.isEmpty()) {
+                return all;
+            }
+        }
         List<String> found = new ArrayList<>();
         for (String name : slotNormalizer.extractTowerDeviceNames(text)) {
             if (!found.contains(name)) {

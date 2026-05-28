@@ -23,6 +23,28 @@ public class InspectionSlotNormalizer {
     private static final Pattern TOWER_LIST_BLOCK =
             Pattern.compile("(?:杆塔|塔杆|#?塔)\\s*([\\d\\s、,，和及到至\\-]+)");
 
+    /** 口语：所有/全部/全体 + 杆塔/设备/塔 */
+    private static final Pattern ALL_DEVICES_INTENT =
+            Pattern.compile("(?:所有|全部|全体|每一|每个)(?:的)?(?:杆塔|塔杆|塔|设备|巡检点|巡检目标)");
+
+    /**
+     * 是否表达「巡检区域内全部设备」意图（如「完成所有杆塔的巡检」）。
+     */
+    public boolean isInspectAllDevicesIntent(String text) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        String t = text.replaceAll("\\s+", "");
+        if (ALL_DEVICES_INTENT.matcher(t).find()) {
+            return true;
+        }
+        // 「所有杆塔」「全部杆塔」简写
+        return t.contains("所有杆塔") || t.contains("全部杆塔")
+                || t.contains("所有塔") || t.contains("全部塔")
+                || t.contains("所有设备") || t.contains("全部设备")
+                || t.contains("巡检所有") || t.contains("巡检全部");
+    }
+
     public void enrich(String userInput, LlmTaskSlotResult slots) {
         if (slots == null || !StringUtils.hasText(userInput)) {
             return;
@@ -33,9 +55,14 @@ public class InspectionSlotNormalizer {
             slots.setAreaName(DEFAULT_PATROL_AREA);
         }
 
+        if (isInspectAllDevicesIntent(text)) {
+            slots.setInspectAllDevices(true);
+        }
+
         List<String> extracted = extractTowerDeviceNames(text);
         if ((slots.getDeviceNames() == null || slots.getDeviceNames().isEmpty()) && !extracted.isEmpty()) {
             slots.setDeviceNames(extracted);
+            slots.setInspectAllDevices(false);
         } else if (slots.getDeviceNames() != null && !slots.getDeviceNames().isEmpty()) {
             List<String> normalized = new ArrayList<>();
             for (String name : slots.getDeviceNames()) {
