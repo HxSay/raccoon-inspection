@@ -53,6 +53,14 @@ public final class PatrolSceneGeometry {
     /**
      * @param towerIndex 1-based，对应「杆塔1」…「杆塔5」
      */
+    public static double towerSceneX(int towerIndex) {
+        int i = towerIndex - 1;
+        if (i < 0 || i >= TOWER_XS.length) {
+            return NEST_X;
+        }
+        return TOWER_XS[i];
+    }
+
     public static GeoPoint towerPhotoPoint(int towerIndex) {
         int i = towerIndex - 1;
         if (i < 0 || i >= TOWER_XS.length) {

@@ -66,6 +66,8 @@ const menuTree: MenuNode[] = [
     icon: 'Cpu',
     children: [
       { path: '/drone/route-plan', title: '无人机路径规划', icon: 'Position' },
+      { path: '/drone/field-device', title: '现场设备管理', icon: 'Place' },
+      { path: '/drone/robot-manage', title: '巡检机器人管理', icon: 'Cpu' },
       { path: '/drone/inspection-data', title: '巡检数据', icon: 'DataLine' }
     ]
   },

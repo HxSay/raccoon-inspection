@@ -108,6 +108,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '无人机路径规划', icon: 'Position' }
       },
       {
+        path: '/drone/field-device',
+        name: 'DroneFieldDevice',
+        component: () => import('@/views/drone/field-device/index.vue'),
+        meta: { title: '现场设备管理', icon: 'Place' }
+      },
+      {
+        path: '/drone/robot-manage',
+        name: 'DroneRobotManage',
+        component: () => import('@/views/drone/robot-manage/index.vue'),
+        meta: { title: '巡检机器人管理', icon: 'Cpu' }
+      },
+      {
         path: '/drone/inspection-data',
         name: 'DroneInspectionData',
         component: () => import('@/views/drone/inspection-data/index.vue'),

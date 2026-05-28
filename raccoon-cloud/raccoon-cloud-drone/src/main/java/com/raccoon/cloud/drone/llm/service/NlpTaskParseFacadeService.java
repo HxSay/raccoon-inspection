@@ -4,6 +4,7 @@ import com.raccoon.cloud.drone.llm.dto.NlpTaskParseResponse;
 import com.raccoon.cloud.drone.llm.model.InspectionTask;
 import com.raccoon.cloud.drone.llm.model.LlmTaskSlotResult;
 import com.raccoon.cloud.drone.llm.service.ResultCheckAndFillService.CheckResult;
+import com.raccoon.cloud.drone.llm.util.InspectionSlotNormalizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -27,11 +28,15 @@ public class NlpTaskParseFacadeService {
     @Autowired
     private LlmResultConvertService llmResultConvertService;
 
+    @Autowired
+    private InspectionSlotNormalizer slotNormalizer;
+
     public NlpTaskParseResponse parse(String rawUserInput) {
         String cleaned = llmInputPreprocessService.preprocess(rawUserInput);
         log.info("开始 NLP 任务解析，输入长度={}", cleaned.length());
 
         LlmTaskSlotResult slots = llmTaskParseService.parse(cleaned);
+        slotNormalizer.enrich(cleaned, slots);
         CheckResult check = resultCheckAndFillService.checkAndFill(slots);
 
         NlpTaskParseResponse response = new NlpTaskParseResponse();

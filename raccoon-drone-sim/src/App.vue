@@ -50,6 +50,9 @@ import EditorOutliner from '@/components/EditorOutliner.vue'
 import EditorToolbar from '@/components/EditorToolbar.vue'
 import EditorProperties from '@/components/EditorProperties.vue'
 import SimControlPanel from '@/components/SimControlPanel.vue'
+import { fetchRobotsBySceneType, type InspectionRobotVO } from '@/api/inspectionRobot'
+import { syncFieldDevicesFromEditor } from '@/api/fieldSceneDevice'
+import { attachRobotLabel, type RobotLabelHandle } from '@/sim/robotLabelMarkers'
 import {
   MSG_INSPECTION_DISPATCH,
   MSG_INSPECTION_DISPATCH_ACK,
@@ -246,8 +249,10 @@ let thermalBundle: ReturnType<typeof createThermalPlantScene> | null = null
 let robotDog: RobotDogModel | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let controls: OrbitControls | null = null
-/** 输电场地多机（与 corridorHomes 一一对应） */
+/** 输电场地多机（与云端巡检机器人配置对应） */
 let patrolDrones: M300DroneModel[] = []
+let patrolRobotLabels: RobotLabelHandle[] = []
+let patrolRobotConfigs: InspectionRobotVO[] = []
 let nest: DroneNest | null = null
 let terminal: EdgeTerminal3D | null = null
 /** 每架巡逻机独立遥测通道（避免一机结束 stop 掉共享 10Hz 定时器） */
@@ -263,6 +268,8 @@ let canvasResizeObserver: ResizeObserver | null = null
 let sceneObjectEditor: SceneObjectEditor | null = null
 const sceneEditor3dRef = shallowRef<SceneEditor3D | null>(null)
 const editorUiState = shallowRef<EditorUiState | null>(null)
+let fieldDeviceSyncTimer: ReturnType<typeof setTimeout> | null = null
+const fieldDeviceSyncHint = ref('')
 
 const viewHint = computed(() => {
   const edit =
@@ -345,6 +352,22 @@ function applyEditorOrbitStyle(on: boolean): void {
     controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY
   }
 }
+
+function scheduleFieldDeviceSync() {
+  if (!sceneEditEnabled.value) return
+  if (fieldDeviceSyncTimer) clearTimeout(fieldDeviceSyncTimer)
+  fieldDeviceSyncTimer = setTimeout(() => {
+    void syncFieldDevicesFromEditor(sceneEditor3dRef.value, sceneTab.value)
+      .then((n) => {
+        if (n > 0) fieldDeviceSyncHint.value = `已同步 ${n} 个现场设备到管理平台`
+      })
+      .catch((e) => {
+        console.warn('[field-device] sync', e)
+      })
+  }, 1200)
+}
+
+watch(editorUiState, () => scheduleFieldDeviceSync(), { deep: true })
 
 watch(sceneEditEnabled, (on) => {
   sceneObjectEditor?.setEnabled(!on)
@@ -665,6 +688,9 @@ watch(
     } else if (tab === 'thermal') {
       ensureThermalPlantBundle()
       applyThermalCamera()
+    } else if (tab === 'patrol' && sceneBundle) {
+      void setupPatrolFleet(sceneBundle.scene, sceneBundle.corridorHomes)
+      return
     }
     rebuildMissionRunner()
     sceneObjectEditor?.rebindToActiveScene()
@@ -682,6 +708,42 @@ function buildVisualHooks() {
       if (sceneTab.value === 'patrol') nest?.setDoorTarget(0)
     }
   }
+}
+
+async function setupPatrolFleet(scene: THREE.Scene, corridorHomes: THREE.Vector3[]) {
+  patrolRobotLabels.forEach((l) => l.dispose())
+  patrolRobotLabels = []
+  patrolDrones.forEach((d) => {
+    scene.remove(d.root)
+    d.dispose()
+  })
+  patrolDrones = []
+
+  try {
+    patrolRobotConfigs = await fetchRobotsBySceneType('patrol')
+  } catch {
+    patrolRobotConfigs = []
+  }
+  const fleet = patrolRobotConfigs.filter((r) => r.robotType === 'UAV')
+  const count = fleet.length > 0 ? fleet.length : Math.max(1, corridorHomes.length)
+
+  for (let i = 0; i < count; i++) {
+    const d = new M300DroneModel()
+    void d.tryLoadExternalModel('/models/m300.glb')
+    const robot = fleet[i]
+    let pos = corridorHomes[Math.min(i, corridorHomes.length - 1)]!.clone()
+    if (robot?.sceneX != null && robot.sceneY != null && robot.sceneZ != null) {
+      pos = new THREE.Vector3(robot.sceneX, robot.sceneY, robot.sceneZ)
+    }
+    d.setPose(pos, 0)
+    scene.add(d.root)
+    d.root.userData.noScenePick = true
+    patrolDrones.push(d)
+    if (robot) {
+      patrolRobotLabels.push(attachRobotLabel(d.root, robot))
+    }
+  }
+  rebuildMissionRunner()
 }
 
 function initThree(): () => void {
@@ -712,14 +774,7 @@ function initThree(): () => void {
   stateReports = Array.from({ length: laneN }, () => new StateReportService())
   edgeCloudReporters = []
 
-  patrolDrones = []
-  for (let i = 0; i < laneN; i++) {
-    const d = new M300DroneModel()
-    void d.tryLoadExternalModel('/models/m300.glb')
-    d.setPose(corridorHomes[i]!.clone(), 0)
-    scene.add(d.root)
-    patrolDrones.push(d)
-  }
+  void setupPatrolFleet(scene, corridorHomes)
 
   camera = new THREE.PerspectiveCamera(52, Math.max(0.01, w / h), 0.4, 2000)
   camera.position.set(PATROL_AERIAL_CAMERA.x, PATROL_AERIAL_CAMERA.y, PATROL_AERIAL_CAMERA.z)
@@ -754,10 +809,6 @@ function initThree(): () => void {
 
   nest.root.userData.noScenePick = true
   terminal.root.userData.noScenePick = true
-  patrolDrones.forEach((d) => {
-    d.root.userData.noScenePick = true
-  })
-
   applySceneState(world, 'patrol')
 
   sceneEditor3dRef.value = new SceneEditor3D({
@@ -889,6 +940,8 @@ function initThree(): () => void {
     missionRunners = []
     controls?.dispose()
     controls = null
+    patrolRobotLabels.forEach((l) => l.dispose())
+    patrolRobotLabels = []
     patrolDrones.forEach((d) => d.dispose())
     patrolDrones = []
     stateReports.forEach((s) => s.stop())
@@ -1061,7 +1114,7 @@ function getPersistWorld(): THREE.Group | null {
   return null
 }
 
-function saveSceneLayout() {
+async function saveSceneLayout() {
   const w = getPersistWorld()
   if (!w) {
     ElMessage.warning('当前场景尚未就绪')
@@ -1070,7 +1123,16 @@ function saveSceneLayout() {
   const tab = sceneTab.value as ScenePersistTab
   const prev = loadSceneState(tab)
   saveSceneState(tab, w, prev?.removedPaths ?? [])
-  ElMessage.success('已保存到本机浏览器（localStorage），刷新后仍会保留。')
+  try {
+    const n = await syncFieldDevicesFromEditor(sceneEditor3dRef.value, sceneTab.value)
+    ElMessage.success(
+      n > 0
+        ? `场景已保存，并已同步 ${n} 个现场设备到管理平台`
+        : '场景已保存到本机；编辑器内暂无新增设备需同步'
+    )
+  } catch {
+    ElMessage.success('场景已保存到本机（现场设备同步失败，请检查 drone 服务）')
+  }
 }
 
 function persistTransformsMerged() {

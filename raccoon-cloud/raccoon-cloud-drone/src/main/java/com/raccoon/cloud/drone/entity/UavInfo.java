@@ -14,6 +14,20 @@ public class UavInfo {
 
     private String uavName;
     private String uavCode;
+
+    /** UAV / ROBOT_DOG / GROUND_ROBOT / WHEELED */
+    private String robotType;
+
+    /** 仿真场景内识别标记（如 UAV-01） */
+    private String markerLabel;
+
+    private String markerColor;
+
+    private Double sceneX;
+    private Double sceneY;
+    private Double sceneZ;
+
     private Long mapId;
     private Integer status;
+    private String remark;
 }

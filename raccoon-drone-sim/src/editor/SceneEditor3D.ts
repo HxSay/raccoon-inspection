@@ -213,6 +213,50 @@ export class SceneEditor3D {
     this.emitUi()
   }
 
+  /** 供现场设备云端同步：采集编辑器内用户添加的物体 */
+  collectFieldDevicesForSync(): Array<{
+    sceneObjectId: string
+    deviceName: string
+    deviceType: string
+    sceneX: number
+    sceneY: number
+    sceneZ: number
+  }> {
+    const out: Array<{
+      sceneObjectId: string
+      deviceName: string
+      deviceType: string
+      sceneX: number
+      sceneY: number
+      sceneZ: number
+    }> = []
+    const visit = (root: THREE.Group | null) => {
+      if (!root) return
+      root.traverse((o) => {
+        if (!isEditorObject(o)) return
+        const ud = o.userData as EditorEntityUserData
+        const kind = ud.editorKind
+        const deviceType =
+          kind === 'cylinder' || kind === 'cone'
+            ? 'TOWER'
+            : kind === 'box'
+              ? 'CUSTOM'
+              : 'CUSTOM'
+        out.push({
+          sceneObjectId: ud.editorId,
+          deviceName: ud.editorLabel,
+          deviceType,
+          sceneX: o.position.x,
+          sceneY: o.position.y,
+          sceneZ: o.position.z
+        })
+      })
+    }
+    visit(this.userRoot)
+    visit(this.importRoot)
+    return out
+  }
+
   exportSceneJson(): string {
     const tab = this.opts.getActiveTab()
     const objs = this.collectSerializable()

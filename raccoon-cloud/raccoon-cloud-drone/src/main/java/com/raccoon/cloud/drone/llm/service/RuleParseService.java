@@ -6,6 +6,7 @@ import com.raccoon.cloud.drone.llm.catalog.InspectionCatalogService;
 import com.raccoon.cloud.drone.llm.enums.PriorityEnum;
 import com.raccoon.cloud.drone.llm.enums.TaskTypeEnum;
 import com.raccoon.cloud.drone.llm.model.LlmTaskSlotResult;
+import com.raccoon.cloud.drone.llm.util.InspectionSlotNormalizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,9 @@ public class RuleParseService {
 
     @Autowired
     private InspectionCatalogService catalogService;
+
+    @Autowired
+    private InspectionSlotNormalizer slotNormalizer;
 
     public LlmTaskSlotResult parse(String userInput) {
         log.warn("启用 RuleParseService 规则降级解析");
@@ -60,6 +64,7 @@ public class RuleParseService {
             r.setPlanTime("");
         }
         r.setRemark("规则解析");
+        slotNormalizer.enrich(text, r);
         return r;
     }
 
@@ -78,13 +83,22 @@ public class RuleParseService {
         if (text.contains("热力")) {
             return catalogService.findAreaByName("热力管网场景");
         }
+        if (text.contains("杆塔") || text.contains("塔杆")) {
+            return catalogService.findAreaByName("输电线路巡检场景");
+        }
         return Optional.empty();
     }
 
     private List<String> matchDeviceNames(String text, Long mapId) {
         List<String> found = new ArrayList<>();
+        for (String name : slotNormalizer.extractTowerDeviceNames(text)) {
+            if (!found.contains(name)) {
+                found.add(name);
+            }
+        }
+        String compact = text.replaceAll("\\s+", "");
         for (UavInspectionDevice d : catalogService.listDevicesByMap(mapId)) {
-            if (text.contains(d.getDeviceName())) {
+            if (compact.contains(d.getDeviceName()) && !found.contains(d.getDeviceName())) {
                 found.add(d.getDeviceName());
             }
         }
