@@ -50,6 +50,14 @@ import EditorOutliner from '@/components/EditorOutliner.vue'
 import EditorToolbar from '@/components/EditorToolbar.vue'
 import EditorProperties from '@/components/EditorProperties.vue'
 import SimControlPanel from '@/components/SimControlPanel.vue'
+import {
+  MSG_INSPECTION_DISPATCH,
+  MSG_INSPECTION_DISPATCH_ACK,
+  MSG_INSPECTION_MISSION_COMPLETE,
+  MSG_INSPECTION_MISSION_ERROR,
+  MSG_INSPECTION_STATUS,
+  type InspectionDispatchMessage
+} from '@/types/inspectionBridge'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 /** 包裹 canvas：flex 子项里用绝对定位填满，避免 clientWidth 与缓冲区不一致导致半屏黑 */
@@ -431,8 +439,15 @@ function onTelemetry(t: TelemetryPayload) {
   offlineBufferHint.value = stateReports.reduce((a, s) => a + s.getBufferedCount(), 0)
 }
 
+function notifyParent(payload: Record<string, unknown>) {
+  if (window.parent !== window) {
+    window.parent.postMessage(payload, '*')
+  }
+}
+
 function onStatus(s: string) {
   taskStatus.value = s
+  notifyParent({ type: MSG_INSPECTION_STATUS, status: s })
 }
 
 function onPhoto() {
@@ -470,12 +485,24 @@ async function onComplete(r: MissionReport) {
   lastReport.value = await finalizeMissionReport(r)
   reportOpen.value = true
   missionJson.value = missionRunners[0]?.getDjiMissionPreview() ?? missionJson.value
+  notifyParent({
+    type: MSG_INSPECTION_MISSION_COMPLETE,
+    summary: {
+      durationSec: r.durationSec,
+      distanceM: r.distanceM,
+      photoCount: r.photos.length,
+      telemetrySent: r.telemetrySent,
+      multimodalUploaded: !!lastReport.value?.multimodalUpload && !lastReport.value.multimodalUpload.error,
+      multimodalError: lastReport.value?.multimodalUpload?.error
+    }
+  })
 }
 
 function onError(e: Error) {
   ElMessage.error(e.message)
   taskStatus.value = '异常终止'
   nest?.setDoorTarget(0)
+  notifyParent({ type: MSG_INSPECTION_MISSION_ERROR, message: e.message })
 }
 
 function ensureThermalPlantBundle(): void {
@@ -889,11 +916,83 @@ function initThree(): () => void {
 
 let disposeThree: (() => void) | null = null
 
+async function waitForPatrolSceneReady(maxMs = 4000): Promise<void> {
+  if (sceneTab.value !== 'patrol') {
+    sceneTab.value = 'patrol'
+  }
+  const deadline = Date.now() + maxMs
+  while (!sceneBundle && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  if (!sceneBundle) {
+    throw new Error('仿真场景尚未就绪，请稍后再试')
+  }
+}
+
+async function applyDispatchFromParent(
+  dispatch: UavRouteDispatchPayload,
+  options?: { autoStart?: boolean; userInput?: string }
+) {
+  await waitForPatrolSceneReady()
+  activeMissionMeta.value = {
+    uavId: dispatch.uavId,
+    taskId: dispatch.taskId,
+    mapId: dispatch.mapId
+  }
+  routeFetchUavId.value = dispatch.uavId
+  routeFetchPlanId.value = dispatch.planId
+  edgeCloudReporters.forEach((r) =>
+    r?.updateContext({
+      uavId: dispatch.uavId,
+      taskId: dispatch.taskId,
+      mapId: dispatch.mapId
+    })
+  )
+  routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
+  const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
+  missionJson.value = JSON.stringify(dji, null, 2)
+  const home = sceneBundle.corridorHomes[0]
+  cloudPatrolPath.value = dispatchToCloudPath(
+    dispatch,
+    home ? { x: home.x, y: home.y, z: home.z } : undefined
+  )
+  rebuildMissionRunner()
+  const n = dji.waypoints.length
+  const hint = options?.userInput ? `（${options.userInput.slice(0, 40)}…）` : ''
+  taskStatus.value = `Agent 已加载 ${n} 个航点${hint}`
+  notifyParent({
+    type: MSG_INSPECTION_DISPATCH_ACK,
+    waypointCount: n,
+    uavId: dispatch.uavId,
+    planId: dispatch.planId
+  })
+  ElMessage.success(`已接收 Agent 巡检指令，${n} 个航点`)
+  if (options?.autoStart !== false) {
+    await startMission()
+  }
+}
+
+function handleParentMessage(ev: MessageEvent) {
+  const data = ev.data as InspectionDispatchMessage | undefined
+  if (!data || data.type !== MSG_INSPECTION_DISPATCH || !data.dispatch) return
+  void applyDispatchFromParent(data.dispatch, {
+    autoStart: data.autoStart,
+    userInput: data.userInput
+  }).catch((e) => {
+    const msg = e instanceof Error ? e.message : String(e)
+    taskStatus.value = `Agent 下发失败: ${msg}`
+    ElMessage.error(msg)
+    notifyParent({ type: MSG_INSPECTION_MISSION_ERROR, message: msg })
+  })
+}
+
 onMounted(() => {
   disposeThree = initThree()
+  window.addEventListener('message', handleParentMessage)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('message', handleParentMessage)
   disposeThree?.()
   disposeThree = null
 })
@@ -1042,30 +1141,9 @@ async function pullRouteAndConvert() {
   try {
     taskStatus.value = '正在拉取智能巡检路径…'
     const dispatch = await fetchRouteDispatch(routeFetchUavId.value, routeFetchPlanId.value)
-    activeMissionMeta.value = {
-      uavId: dispatch.uavId,
-      taskId: dispatch.taskId,
-      mapId: dispatch.mapId
-    }
-    edgeCloudReporters.forEach((r) =>
-      r?.updateContext({
-        uavId: dispatch.uavId,
-        taskId: dispatch.taskId,
-        mapId: dispatch.mapId
-      })
-    )
-    routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
-    const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
-    missionJson.value = JSON.stringify(dji, null, 2)
-    const home = sceneBundle?.corridorHomes[0]
-    cloudPatrolPath.value = dispatchToCloudPath(
-      dispatch,
-      home ? { x: home.x, y: home.y, z: home.z } : undefined
-    )
-    rebuildMissionRunner()
-    const n = dji.waypoints.length
+    await applyDispatchFromParent(dispatch, { autoStart: false })
     const src = dispatch.waypoints?.length ?? 0
-    taskStatus.value = `已加载 ${n} 个航点，请点击「开始任务」按 waypoint 飞行`
+    taskStatus.value = `已加载航点，请点击「启动巡检」`
     ElMessage.success(`已对齐后台 ${src} 个飞行点，预览线为折线（非平滑曲线）`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

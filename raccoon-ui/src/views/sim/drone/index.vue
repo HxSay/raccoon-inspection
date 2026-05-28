@@ -21,6 +21,7 @@ const goBack = () => {
 }
 const iframeLoaded = ref(false)
 const loadTimeout = ref(false)
+const simIframeRef = ref<HTMLIFrameElement | null>(null)
 let timer: ReturnType<typeof setTimeout> | undefined
 
 const onIframeLoad = () => {
@@ -76,6 +77,7 @@ onMounted(() => {
     </div>
 
     <iframe
+      ref="simIframeRef"
       class="sim-iframe"
       :src="simBase"
       title="无人机仿真模拟"
@@ -83,8 +85,8 @@ onMounted(() => {
       @load="onIframeLoad"
     />
 
-    <!-- 右下角悬浮：智能巡检 Agent 问答 -->
-    <InspectionAgentFab />
+    <!-- 右下角悬浮：NLP 巡检任务 Agent → 仿真无人机 -->
+    <InspectionAgentFab :sim-iframe="simIframeRef" />
   </div>
 </template>
 

@@ -11,6 +11,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-dr
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\dto\NlpTaskParseResponse.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\enums\TaskTypeEnum.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\model\LlmTaskSlotResult.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\catalog\PatrolDeviceWaypointResolver.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\client\OllamaLlmChatClient.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\mapper\UavRoutePlanMapper.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\config\MybatisPlusConfig.java
@@ -32,6 +33,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-dr
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\service\LlmTaskParseService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\service\UavRoutePlanService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\web\DroneOptionsController.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\catalog\PatrolSceneGeometry.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\enums\PriorityEnum.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\service\impl\UavRoutePlanServiceImpl.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\mapper\UavInfoMapper.java

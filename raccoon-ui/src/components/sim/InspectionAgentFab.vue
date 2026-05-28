@@ -1,9 +1,22 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ragChat, type RagChatResponse } from '@/api/rag'
+import { nlpTaskParse, type NlpTaskParseResponse } from '@/api/droneNlp'
 import ChatBubble from '@/components/rag/ChatBubble.vue'
-import DeviceSelector from '@/components/rag/DeviceSelector.vue'
+import {
+  formatTaskSummary,
+  inspectionTaskToDispatch,
+  MSG_INSPECTION_DISPATCH_ACK,
+  MSG_INSPECTION_MISSION_COMPLETE,
+  MSG_INSPECTION_MISSION_ERROR,
+  MSG_INSPECTION_STATUS,
+  postDispatchToSimIframe
+} from '@/utils/inspectionBridge'
+
+const props = defineProps<{
+  /** 仿真 iframe，用于 postMessage 下发航线 */
+  simIframe?: HTMLIFrameElement | null
+}>()
 
 interface ChatMessage {
   id: string
@@ -12,16 +25,14 @@ interface ChatMessage {
   timestamp: number
   loading?: boolean
   error?: string
-  elapsedMs?: number
-  model?: string
 }
 
 const panelOpen = ref(false)
 const inputText = ref('')
 const sending = ref(false)
-const deviceId = ref<string | undefined>(undefined)
 const messages = ref<ChatMessage[]>([])
 const chatBodyRef = ref<HTMLElement | null>(null)
+const missionRunning = ref(false)
 
 const genId = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
@@ -41,23 +52,93 @@ const togglePanel = () => {
 
 const clearChat = () => {
   messages.value = []
+  missionRunning.value = false
+}
+
+function onSimMessage(ev: MessageEvent) {
+  const data = ev.data as { type?: string; status?: string; summary?: Record<string, unknown>; message?: string }
+  if (!data?.type) return
+
+  if (data.type === MSG_INSPECTION_DISPATCH_ACK) {
+    missionRunning.value = true
+    const n = (data as { waypointCount?: number }).waypointCount
+    pushAssistant(`航线已加载（${n ?? '?'} 个航点），无人机正在起飞巡检…`)
+    return
+  }
+
+  if (data.type === MSG_INSPECTION_STATUS && data.status) {
+    if (
+      data.status.includes('自主巡检') ||
+      data.status.includes('拍照') ||
+      data.status.includes('返航') ||
+      data.status.includes('上报')
+    ) {
+      pushAssistant(`[状态] ${data.status}`, false)
+    }
+    return
+  }
+
+  if (data.type === MSG_INSPECTION_MISSION_COMPLETE && data.summary) {
+    missionRunning.value = false
+    const s = data.summary as {
+      durationSec?: number
+      distanceM?: number
+      photoCount?: number
+      telemetrySent?: number
+      multimodalUploaded?: boolean
+      multimodalError?: string
+    }
+    const uploadLine = s.multimodalUploaded
+      ? '多模态巡检结果已上报云端。'
+      : s.multimodalError
+        ? `多模态上报：${s.multimodalError}`
+        : '多模态上报未执行。'
+    pushAssistant(
+      [
+        '巡检任务已完成。',
+        `飞行 ${s.durationSec?.toFixed(0) ?? '—'} s，航程 ${s.distanceM?.toFixed(1) ?? '—'} m。`,
+        `拍照 ${s.photoCount ?? 0} 次，遥测上报 ${s.telemetrySent ?? 0} 条。`,
+        uploadLine
+      ].join('\n')
+    )
+    return
+  }
+
+  if (data.type === MSG_INSPECTION_MISSION_ERROR) {
+    missionRunning.value = false
+    pushAssistant(`任务异常：${data.message ?? '未知错误'}`, true)
+  }
+}
+
+function pushAssistant(content: string, isError = false) {
+  messages.value.push({
+    id: genId(),
+    role: 'assistant',
+    content,
+    timestamp: Date.now(),
+    error: isError ? content : undefined
+  })
+  void scrollToBottom()
 }
 
 const sendMessage = async () => {
   const text = inputText.value.trim()
   if (!text) {
-    ElMessage.warning('请输入问题')
+    ElMessage.warning('请输入巡检指令')
     return
   }
   if (sending.value) return
+  if (missionRunning.value) {
+    ElMessage.warning('无人机巡检进行中，请等待任务结束')
+    return
+  }
 
-  const userMsg: ChatMessage = {
+  messages.value.push({
     id: genId(),
     role: 'user',
     content: text,
     timestamp: Date.now()
-  }
-  messages.value.push(userMsg)
+  })
   inputText.value = ''
 
   const assistantMsg: ChatMessage = {
@@ -72,18 +153,42 @@ const sendMessage = async () => {
 
   sending.value = true
   try {
-    const res: any = await ragChat({
-      question: text,
-      deviceId: deviceId.value || undefined,
-      topK: 5
+    const res: any = await nlpTaskParse(text)
+    const data = res.data as NlpTaskParseResponse
+
+    if (data?.needFollowUp) {
+      assistantMsg.content = data.followUpQuestion ?? '请补充巡检区域与设备信息。'
+      return
+    }
+
+    if (!data?.task) {
+      assistantMsg.content = '解析失败：未生成巡检任务，请换种说法重试。'
+      assistantMsg.error = assistantMsg.content
+      return
+    }
+
+    const summary = formatTaskSummary(data.task, data.slots)
+    const source = data.parseSource === 'RULE' ? '规则解析' : 'LLM 解析'
+    assistantMsg.content = `已理解巡检意图（${source}）：\n${summary}\n\n正在向仿真无人机下发航线…`
+
+    if (!props.simIframe) {
+      assistantMsg.content += '\n\n（仿真 iframe 未就绪，无法启动飞行）'
+      ElMessage.warning('仿真页面未加载完成')
+      return
+    }
+
+    const dispatch = inspectionTaskToDispatch(data.task)
+    const posted = postDispatchToSimIframe(props.simIframe, dispatch, {
+      autoStart: true,
+      userInput: text
     })
-    const data = res.data as RagChatResponse
-    assistantMsg.content = data?.answer ?? '（无回答内容）'
-    assistantMsg.elapsedMs = data?.elapsedMs
-    assistantMsg.model = data?.model
+    if (!posted) {
+      assistantMsg.content += '\n\n下发失败：无法访问仿真窗口。'
+      ElMessage.error('无法向仿真页下发指令')
+    }
   } catch (e: any) {
-    assistantMsg.error = e?.message ?? '问答失败'
-    assistantMsg.content = `生成失败：${assistantMsg.error}`
+    assistantMsg.error = e?.message ?? '任务解析失败'
+    assistantMsg.content = `解析失败：${assistantMsg.error}`
     ElMessage.error(assistantMsg.error)
   } finally {
     assistantMsg.loading = false
@@ -99,6 +204,14 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
+onMounted(() => {
+  window.addEventListener('message', onSimMessage)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onSimMessage)
+})
+
 watch(panelOpen, (open) => {
   if (open) scrollToBottom()
 })
@@ -106,7 +219,6 @@ watch(panelOpen, (open) => {
 
 <template>
   <div class="agent-fab-root">
-    <!-- 问答面板 -->
     <transition name="agent-panel">
       <div v-show="panelOpen" class="agent-panel">
         <div class="agent-panel__header">
@@ -122,22 +234,18 @@ watch(panelOpen, (open) => {
           </div>
         </div>
 
-        <div class="agent-panel__device">
-          <span class="agent-panel__label">关联设备</span>
-          <DeviceSelector
-            v-model="deviceId"
-            placeholder="可选：按设备过滤知识库"
-            clearable
-          />
+        <div class="agent-panel__hint">
+          用自然语言下达巡检任务，例如：
+          <em>明天上午对输电线路场景的杆塔1和杆塔2做例行巡检</em>
         </div>
 
         <div ref="chatBodyRef" class="agent-panel__body">
           <div v-if="!messages.length" class="agent-panel__empty">
-            <p>我是巡检 AI 助手，可解答：</p>
+            <p>我是巡检任务 Agent，可：</p>
             <ul>
-              <li>设备故障与处置建议</li>
-              <li>巡检规程与运维知识</li>
-              <li>仿真场景中的杆塔 / 无人机相关问题</li>
+              <li>解析自然语言中的区域、设备、优先级</li>
+              <li>自动生成航线并指挥仿真无人机起飞</li>
+              <li>任务结束后上报遥测与多模态巡检结果</li>
             </ul>
           </div>
           <template v-else>
@@ -157,8 +265,8 @@ watch(panelOpen, (open) => {
             v-model="inputText"
             type="textarea"
             :rows="2"
-            placeholder="输入巡检相关问题，Enter 发送，Shift+Enter 换行"
-            :disabled="sending"
+            placeholder="输入巡检指令，如：紧急复巡变电站场景的主变压器和断路器"
+            :disabled="sending || missionRunning"
             resize="none"
             @keydown="onKeydown"
           />
@@ -166,15 +274,15 @@ watch(panelOpen, (open) => {
             type="primary"
             class="agent-panel__send"
             :loading="sending"
+            :disabled="missionRunning"
             @click="sendMessage"
           >
-            发送
+            {{ missionRunning ? '巡检中…' : '下达指令' }}
           </el-button>
         </div>
       </div>
     </transition>
 
-    <!-- 悬浮气泡 -->
     <button
       type="button"
       class="agent-fab"
@@ -285,18 +393,19 @@ watch(panelOpen, (open) => {
   color: #fff;
 }
 
-.agent-panel__device {
+.agent-panel__hint {
   flex-shrink: 0;
-  padding: 10px 12px;
-  border-bottom: 1px solid #ebeef5;
-  background: #fafafa;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.5;
+  background: #ecf5ff;
+  border-bottom: 1px solid #d9ecff;
 }
 
-.agent-panel__label {
-  display: block;
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 6px;
+.agent-panel__hint em {
+  font-style: normal;
+  color: #409eff;
 }
 
 .agent-panel__body {
