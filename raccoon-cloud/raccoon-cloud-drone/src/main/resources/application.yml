@@ -6,6 +6,13 @@ server:
 spring:
   application:
     name: raccoon-cloud-drone
+  ai:
+    ollama:
+      base-url: http://127.0.0.1:11434
+      chat:
+        options:
+          model: llama3.2
+          temperature: 0.1
   config:
     import: optional:nacos:localhost:8848
   cloud:
@@ -32,3 +39,19 @@ mybatis-plus:
 logging:
   level:
     com.raccoon.cloud.drone: debug
+
+raccoon:
+  llm:
+    task-parse:
+      timeout-ms: 5000
+      max-retries: 3
+      max-input-length: 500
+      default-algorithm: RRT*
+      default-plan-id: 5
+      default-task-id: 6
+      default-uav-id: 1
+      default-map-id: 1
+      default-longitude: 104.000415
+      default-latitude: 30.5
+      default-takeoff-height: 3.0
+      default-cruise-height: 50.0

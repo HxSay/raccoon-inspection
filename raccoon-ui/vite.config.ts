@@ -27,6 +27,13 @@ export default defineConfig({
     port: 3000,
     host: true,
     proxy: {
+      /** raccoon-drone-sim 嵌入页代理（独立启动仍用 http://localhost:3010） */
+      '/sim-drone': {
+        target: 'http://localhost:3010',
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/sim-drone/, '')
+      },
       '/api/drone': {
         target: 'http://localhost:8091',
         changeOrigin: true,

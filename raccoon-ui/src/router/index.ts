@@ -54,6 +54,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '首页', icon: 'Odometer' }
       },
       {
+        path: '/sim/drone',
+        name: 'DroneSim',
+        component: () => import('@/views/sim/drone/index.vue'),
+        meta: { title: '仿真模拟', icon: 'VideoCamera', fullBleed: true }
+      },
+      {
         path: '/user',
         name: 'User',
         component: () => import('@/views/user/index.vue'),

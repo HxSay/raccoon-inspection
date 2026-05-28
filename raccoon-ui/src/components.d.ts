@@ -60,6 +60,7 @@ declare module 'vue' {
     ElTag: typeof import('element-plus/es')['ElTag']
     ElText: typeof import('element-plus/es')['ElText']
     ElUpload: typeof import('element-plus/es')['ElUpload']
+    InspectionAgentFab: typeof import('./components/sim/InspectionAgentFab.vue')['default']
     PdfPreviewDialog: typeof import('./components/rag/PdfPreviewDialog.vue')['default']
     PdfUploader: typeof import('./components/rag/PdfUploader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

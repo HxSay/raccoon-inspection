@@ -13,6 +13,9 @@
 .PARAMETER NoFrontend
   Skip raccoon-ui.
 
+.PARAMETER NoDroneSim
+  Skip raccoon-drone-sim (port 3010). Main UI embed still needs it for /sim/drone.
+
 .PARAMETER ShowWindows
   Open one PowerShell window per service (old behavior).
 
@@ -26,6 +29,7 @@ param(
     [string]$Profile = 'All',
     [switch]$Compile,
     [switch]$NoFrontend,
+    [switch]$NoDroneSim,
     [switch]$ShowWindows,
     [int]$StaggerSeconds = 4
 )
@@ -264,6 +268,34 @@ function Start-SpringService {
     }
 }
 
+function Start-DroneSim {
+    param(
+        [string]$Npm,
+        [string]$RootPath,
+        [bool]$VisibleWindow
+    )
+    $simDir = Join-Path $RootPath 'raccoon-drone-sim'
+    if (-not (Test-Path (Join-Path $simDir 'package.json'))) {
+        Write-WarnMsg '[skip] raccoon-drone-sim not found'
+        return
+    }
+    if (-not (Clear-PortListener -Port 3010 -Label 'drone-sim')) { return }
+    Stop-StaleServiceLauncher -Name 'drone-sim'
+    $launcher = Join-Path (Get-RunDir) 'start-drone-sim.ps1'
+    $npmCmd = "& '$((Escape-SingleQuoted $Npm))' run dev"
+    Write-LauncherScript -Path $launcher -Lines @(
+        ('Set-Location -LiteralPath ''{0}''' -f (Escape-SingleQuoted $simDir))
+        "Write-Output '>>> Starting raccoon-drone-sim http://localhost:3010 ...'"
+        $npmCmd
+    )
+    $info = Start-LauncherProcess -LauncherPath $launcher -Name 'drone-sim' -VisibleWindow $VisibleWindow
+    if ($info) {
+        Write-Ok "[start] raccoon-drone-sim -> http://localhost:3010  (PID $($info.Pid), log: $($info.OutLog))"
+    } else {
+        Write-Ok '[start] raccoon-drone-sim -> http://localhost:3010  (window)'
+    }
+}
+
 function Start-Frontend {
     param(
         [string]$Npm,
@@ -323,7 +355,7 @@ $visible = [bool]$ShowWindows
 Write-Host ''
 Write-Host '========================================' -ForegroundColor DarkCyan
 Write-Host '  Raccoon dev environment' -ForegroundColor DarkCyan
-Write-Host "  Profile=$Profile  Compile=$Compile  Frontend=$(-not $NoFrontend)  Windows=$visible" -ForegroundColor DarkCyan
+Write-Host "  Profile=$Profile  Compile=$Compile  Frontend=$(-not $NoFrontend)  DroneSim=$(-not $NoDroneSim)  Windows=$visible" -ForegroundColor DarkCyan
 Write-Host '========================================' -ForegroundColor DarkCyan
 Write-Host ''
 Write-WarnMsg 'Prerequisites (not started by this script):'
@@ -351,10 +383,16 @@ foreach ($svc in $Services) {
     if ($StaggerSeconds -gt 0) { Start-Sleep -Seconds $StaggerSeconds }
 }
 
-if (-not $NoFrontend) {
+if (-not $NoFrontend -or -not $NoDroneSim) {
     Start-Sleep -Seconds 2
     $npm = Resolve-Npm
-    Start-Frontend -Npm $npm -RootPath $Root -VisibleWindow $visible
+    if (-not $NoDroneSim) {
+        Start-DroneSim -Npm $npm -RootPath $Root -VisibleWindow $visible
+        Start-Sleep -Seconds 2
+    }
+    if (-not $NoFrontend) {
+        Start-Frontend -Npm $npm -RootPath $Root -VisibleWindow $visible
+    }
 }
 
 Write-Host ''
@@ -369,6 +407,10 @@ if ($visible) {
 }
 Write-Host ''
 Write-Host '  UI: http://localhost:3000' -ForegroundColor White
+if (-not $NoDroneSim) {
+    Write-Host '  Drone sim (standalone): http://localhost:3010' -ForegroundColor White
+    Write-Host '  Drone sim (embedded):    http://localhost:3000/sim/drone' -ForegroundColor White
+}
 if ($Profile -eq 'All') {
     Write-Host '  Gateway: http://localhost:8080' -ForegroundColor White
 }

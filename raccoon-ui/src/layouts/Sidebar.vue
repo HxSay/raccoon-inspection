@@ -35,6 +35,7 @@ type MenuNode = MenuSingle | MenuSubGroup
 /** 侧栏分组：与图中「系统管理 / 巡检管理 / 智能巡检」一致 */
 const menuTree: MenuNode[] = [
   { type: 'item', path: '/dashboard', title: '首页', icon: 'Odometer' },
+  { type: 'item', path: '/sim/drone', title: '仿真模拟', icon: 'VideoCamera' },
   {
     type: 'submenu',
     index: 'system',
