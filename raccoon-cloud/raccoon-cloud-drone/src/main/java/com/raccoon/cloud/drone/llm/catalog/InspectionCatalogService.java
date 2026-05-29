@@ -93,6 +93,20 @@ public class InspectionCatalogService {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    /**
+     * 统计场景内可用（status=1）无人机数量，用于机队推荐的可用机数上界。
+     */
+    public int countActiveUavsByMap(Long mapId) {
+        if (mapId == null) {
+            return 0;
+        }
+        Long count = uavInfoMapper.selectCount(
+                new LambdaQueryWrapper<UavInfo>()
+                        .eq(UavInfo::getMapId, mapId)
+                        .eq(UavInfo::getStatus, 1));
+        return count == null ? 0 : count.intValue();
+    }
+
     public List<String> listAllAreaNames() {
         return uavMapMapper.selectList(new LambdaQueryWrapper<UavMap>().orderByAsc(UavMap::getId))
                 .stream().map(UavMap::getMapName).filter(StringUtils::hasText).toList();

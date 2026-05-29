@@ -239,6 +239,14 @@ const sendMessage = async () => {
       summaryLines = [`已理解巡检意图（${parseSource}）：`, summary]
     }
 
+    // 机队决策：架数与理由由后端（LLM 决策 + 真实可用机数裁剪）给出
+    const recommendedFleet = data?.slots?.recommendedDrones
+    const fleetReason = data?.slots?.fleetReason
+    if (recommendedFleet && recommendedFleet >= 1) {
+      summaryLines.push(`AI 决策出动 ${recommendedFleet} 架无人机`)
+      if (fleetReason) summaryLines.push(`理由：${fleetReason}`)
+    }
+
     const photoN = countPhotoWaypoints(dispatchPayload)
     assistantMsg.content =
       (summaryLines.length ? summaryLines.join('\n') : '任务已生成') +
@@ -253,7 +261,8 @@ const sendMessage = async () => {
 
     const posted = postDispatchToSimIframe(props.simIframe, dispatchPayload!, {
       autoStart: true,
-      userInput: text
+      userInput: text,
+      recommendedFleet: recommendedFleet && recommendedFleet >= 1 ? recommendedFleet : undefined
     })
     if (!posted) {
       assistantMsg.content += '\n\n下发失败：无法访问仿真窗口。'

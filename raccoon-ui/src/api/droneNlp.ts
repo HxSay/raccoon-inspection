@@ -10,6 +10,10 @@ export interface LlmTaskSlotResult {
   planTime?: string
   remark?: string
   parseSource?: string
+  /** 建议出动无人机数量（LLM 决策 + 后端按可用机数裁剪） */
+  recommendedDrones?: number
+  /** 选择该出动架数的理由（用于 Agent 面板展示） */
+  fleetReason?: string
 }
 
 /** 标准化巡检任务（与 drone 下发 JSON 一致） */

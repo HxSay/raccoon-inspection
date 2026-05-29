@@ -35,7 +35,26 @@ public final class LlmJsonExtractor {
         r.setPlanTime(text(node, "planTime"));
         r.setRemark(text(node, "remark"));
         r.setDeviceNames(parseDeviceNames(node));
+        r.setRecommendedDrones(intOrNull(node, "recommendedDrones"));
+        r.setFleetReason(text(node, "fleetReason"));
         return r;
+    }
+
+    private static Integer intOrNull(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        if (v == null || v.isNull()) {
+            return null;
+        }
+        if (v.isInt() || v.isLong()) {
+            return v.asInt();
+        }
+        if (v.isTextual()) {
+            Matcher m = Pattern.compile("\\d+").matcher(v.asText());
+            if (m.find()) {
+                return Integer.parseInt(m.group());
+            }
+        }
+        return null;
     }
 
     private static String extractJsonString(String raw) {

@@ -11,4 +11,6 @@ export interface InspectionDispatchMessage {
   dispatch: UavRouteDispatchPayload
   autoStart?: boolean
   userInput?: string
+  /** 父页面（LLM 决策）建议出动无人机数量，仿真侧按可用机数最终裁剪 */
+  recommendedFleet?: number
 }

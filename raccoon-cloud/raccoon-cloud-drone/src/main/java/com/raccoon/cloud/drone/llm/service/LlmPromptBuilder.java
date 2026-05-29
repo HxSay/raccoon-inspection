@@ -24,31 +24,41 @@ public class LlmPromptBuilder {
             - priority: NORMAL | URGENT
             - planTime: 计划时间描述（可为空字符串）
             - remark: 备注（可为空字符串）
+            - recommendedDrones: 建议出动的无人机数量（正整数）。请根据任务覆盖的设备/杆塔数量与协同效率自行决策，不要固定：
+              · 单个目标（如只巡检 1 基杆塔）→ 1，就近派 1 架即可，避免浪费续航；
+              · 多个目标或「所有/全部杆塔」→ 在不超过 3 架的前提下，目标越多越倾向多架并行以缩短巡检时间；
+            - fleetReason: 用一句中文说明为什么出动这个数量（结合目标数量、并行效率、续航等）。
             只输出一个 JSON 对象，不要其它文字。
             """;
 
     /** Few-Shot 示例 1 */
     private static final String FEW_SHOT_1_USER = "明天上午对输电线路场景的杆塔1和杆塔2做例行巡检";
     private static final String FEW_SHOT_1_ASSISTANT = """
-            {"taskType":"REGULAR","areaName":"输电线路巡检场景","deviceNames":["杆塔1","杆塔2"],"priority":"NORMAL","planTime":"明天上午","remark":"例行巡检"}
+            {"taskType":"REGULAR","areaName":"输电线路巡检场景","deviceNames":["杆塔1","杆塔2"],"priority":"NORMAL","planTime":"明天上午","remark":"例行巡检","recommendedDrones":2,"fleetReason":"2 基杆塔分布在走廊两段，派 2 架并行可同时完成、缩短一半时间"}
             """;
 
     /** Few-Shot 示例 2 */
     private static final String FEW_SHOT_2_USER = "紧急复巡变电站场景的主变压器和断路器";
     private static final String FEW_SHOT_2_ASSISTANT = """
-            {"taskType":"RE_INSPECTION","areaName":"变电站场景","deviceNames":["主变压器","断路器"],"priority":"URGENT","planTime":"","remark":"紧急复巡"}
+            {"taskType":"RE_INSPECTION","areaName":"变电站场景","deviceNames":["主变压器","断路器"],"priority":"URGENT","planTime":"","remark":"紧急复巡","recommendedDrones":2,"fleetReason":"两类设备相距较远，紧急任务下 2 架同时复巡更快锁定隐患"}
             """;
 
     /** Few-Shot 示例 3 */
     private static final String FEW_SHOT_3_USER = "临时检查一下热力管网场景的阀门";
     private static final String FEW_SHOT_3_ASSISTANT = """
-            {"taskType":"TEMP","areaName":"热力管网场景","deviceNames":["阀门"],"priority":"NORMAL","planTime":"","remark":"临时检查"}
+            {"taskType":"TEMP","areaName":"热力管网场景","deviceNames":["阀门"],"priority":"NORMAL","planTime":"","remark":"临时检查","recommendedDrones":1,"fleetReason":"仅检查单一阀门，1 架就近巡检即可，避免重复出动"}
             """;
 
     /** Few-Shot 示例 4：编号在前的口语化杆塔名 → 规范为「杆塔N」 */
     private static final String FEW_SHOT_4_USER = "帮我巡检电网巡检场景的4号塔杆";
     private static final String FEW_SHOT_4_ASSISTANT = """
-            {"taskType":"REGULAR","areaName":"输电线路巡检场景","deviceNames":["杆塔4"],"priority":"NORMAL","planTime":"","remark":""}
+            {"taskType":"REGULAR","areaName":"输电线路巡检场景","deviceNames":["杆塔4"],"priority":"NORMAL","planTime":"","remark":"","recommendedDrones":1,"fleetReason":"只巡检 1 基杆塔，派距离最近的 1 架无人机即可"}
+            """;
+
+    /** Few-Shot 示例 5：「所有/全部杆塔」→ 多机并行 */
+    private static final String FEW_SHOT_5_USER = "帮我巡检输电线路场景的所有杆塔";
+    private static final String FEW_SHOT_5_ASSISTANT = """
+            {"taskType":"REGULAR","areaName":"输电线路巡检场景","deviceNames":[],"priority":"NORMAL","planTime":"","remark":"","recommendedDrones":3,"fleetReason":"全线杆塔较多且分布在长走廊，调度 3 架分段并行可大幅缩短巡检时间"}
             """;
 
     public String buildPrompt(String userInput) {
@@ -68,6 +78,7 @@ public class LlmPromptBuilder {
         sb.append("【示例2】\n用户：").append(FEW_SHOT_2_USER).append("\n输出：").append(FEW_SHOT_2_ASSISTANT).append("\n");
         sb.append("【示例3】\n用户：").append(FEW_SHOT_3_USER).append("\n输出：").append(FEW_SHOT_3_ASSISTANT).append("\n");
         sb.append("【示例4】\n用户：").append(FEW_SHOT_4_USER).append("\n输出：").append(FEW_SHOT_4_ASSISTANT).append("\n");
+        sb.append("【示例5】\n用户：").append(FEW_SHOT_5_USER).append("\n输出：").append(FEW_SHOT_5_ASSISTANT).append("\n");
         sb.append("【当前用户输入】\n用户：").append(userInput).append("\n输出：");
         return sb.toString();
     }

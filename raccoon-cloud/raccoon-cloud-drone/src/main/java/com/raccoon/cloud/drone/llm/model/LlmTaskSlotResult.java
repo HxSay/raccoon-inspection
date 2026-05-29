@@ -27,4 +27,14 @@ public class LlmTaskSlotResult {
      * 将按 mapId 自动展开设备列表，不再追问 deviceNames。
      */
     private Boolean inspectAllDevices;
+
+    /**
+     * 建议出动的无人机数量（由 LLM 根据任务覆盖范围给出，后端按真实可用机数 / 设备数裁剪）。
+     */
+    private Integer recommendedDrones;
+
+    /**
+     * 选择该出动架数的理由（LLM 生成，缺省时由后端按设备数 / 可用机数兜底生成），用于在巡检 Agent 面板展示。
+     */
+    private String fleetReason;
 }

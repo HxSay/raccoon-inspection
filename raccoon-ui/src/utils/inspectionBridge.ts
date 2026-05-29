@@ -18,6 +18,8 @@ export interface InspectionDispatchMessage {
   autoStart?: boolean
   /** 自然语言原文（仿真侧展示用） */
   userInput?: string
+  /** 建议出动无人机数量（由 LLM 决策，仿真侧按可用机数最终裁剪） */
+  recommendedFleet?: number
 }
 
 export interface InspectionMissionCompleteMessage {
@@ -59,7 +61,7 @@ export function inspectionTaskToDispatch(task: InspectionTask): UavRouteDispatch
 export function postDispatchToSimIframe(
   iframe: HTMLIFrameElement | null | undefined,
   dispatch: UavRouteDispatchPayload,
-  options?: { autoStart?: boolean; userInput?: string }
+  options?: { autoStart?: boolean; userInput?: string; recommendedFleet?: number }
 ): boolean {
   const win = iframe?.contentWindow
   if (!win) return false
@@ -67,7 +69,8 @@ export function postDispatchToSimIframe(
     type: MSG_INSPECTION_DISPATCH,
     dispatch,
     autoStart: options?.autoStart !== false,
-    userInput: options?.userInput
+    userInput: options?.userInput,
+    recommendedFleet: options?.recommendedFleet
   }
   win.postMessage(msg, '*')
   return true

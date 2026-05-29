@@ -695,7 +695,7 @@ function rebuildMissionRunner() {
   if (!stateReports.length) return
   if (sceneTab.value === 'patrol' && sceneBundle && patrolDrones.length) {
     // 有 Agent 派单方案时仅出动被选中的机；否则（手动仿真）默认全部机从各自归位点起飞
-    const maxLanes = Math.min(patrolDrones.length, sceneBundle.corridorHomes.length, stateReports.length)
+    const maxLanes = Math.min(patrolDrones.length, stateReports.length)
     const entries: { drone: M300DroneModel; home: THREE.Vector3; path: CloudPathPoint[] }[] =
       fleetPlan.length > 0
         ? fleetPlan.slice(0, stateReports.length).map((e) => ({ drone: e.drone, home: e.home.clone(), path: e.path }))
@@ -870,6 +870,14 @@ async function setupPatrolFleet(scene: THREE.Scene, corridorHomes: THREE.Vector3
   const count = fleet.length > 0 ? fleet.length : Math.max(1, corridorHomes.length)
   patrolFleetUavIds = fleet.length > 0 ? fleet.map((r) => r.id) : [1]
   const savedHomes = loadSavedPatrolHomes()
+
+  // 上报服务数量需匹配实际机队规模（机巢几何仅 2 位，但云端可配置更多无人机），
+  // 否则编队派单会被 stateReports.length 截断、出动架数上不去。
+  while (stateReports.length < count) {
+    const sr = new StateReportService()
+    sr.setOnline(!simulateDisconnect.value)
+    stateReports.push(sr)
+  }
 
   for (let i = 0; i < count; i++) {
     const d = new M300DroneModel()
@@ -1179,7 +1187,10 @@ function buildCloudPathFromHome(
  * - 单个塔杆/设备 → 仅派距离最近的 1 架；多设备 → 在最近的若干架之间分摊。
  * 拍照点固定落在真实塔位（以机巢为锚点解算），每架机从“当前位置”出发并返回，避免回到初始位。
  */
-function planFleetAssignments(dispatch: UavRouteDispatchPayload): typeof fleetPlan {
+function planFleetAssignments(
+  dispatch: UavRouteDispatchPayload,
+  recommendedFleet?: number
+): typeof fleetPlan {
   if (!sceneBundle || patrolDrones.length === 0) return []
   // 锚点固定用原始机巢：经纬度→场景的换算基准，保证拍照点落在真实塔位（不随无人机被拖动而偏移）
   const anchor0 = sceneBundle.corridorHomes[0]!
@@ -1193,7 +1204,10 @@ function planFleetAssignments(dispatch: UavRouteDispatchPayload): typeof fleetPl
   }
   const workload = deviceIds.size > 0 ? deviceIds.size : Math.max(1, photoPts.length)
   const maxDrones = Math.min(patrolDrones.length, Math.max(1, stateReports.length))
-  const dronesToUse = Math.max(1, Math.min(maxDrones, workload))
+  // 出动架数优先采用云端（LLM 决策）下发的 recommendedFleet；缺省再按工作量估算
+  const desired =
+    recommendedFleet && recommendedFleet >= 1 ? recommendedFleet : workload
+  const dronesToUse = Math.max(1, Math.min(maxDrones, desired, Math.max(1, photoPts.length)))
 
   // 任务参考点：拍照点质心（无拍照点用整条航线质心）
   const refPts = photoPts.length ? photoPts : worldPath
@@ -1243,7 +1257,7 @@ function planFleetAssignments(dispatch: UavRouteDispatchPayload): typeof fleetPl
 
 async function applyDispatchFromParent(
   dispatch: UavRouteDispatchPayload,
-  options?: { autoStart?: boolean; userInput?: string }
+  options?: { autoStart?: boolean; userInput?: string; recommendedFleet?: number }
 ) {
   await waitForPatrolSceneReady()
   activeMissionMeta.value = {
@@ -1263,8 +1277,8 @@ async function applyDispatchFromParent(
   routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
   const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
   missionJson.value = JSON.stringify(dji, null, 2)
-  // 就近调度：按任务工作量决定出动几架、出动哪几架（单设备仅派最近 1 架）
-  fleetPlan = planFleetAssignments(dispatch)
+  // 就近调度：架数优先采用云端 LLM 决策（recommendedFleet），再就近选机、单设备仅派最近 1 架
+  fleetPlan = planFleetAssignments(dispatch, options?.recommendedFleet)
   cloudPatrolPath.value = fleetPlan[0]?.path ?? []
   const usedN = fleetPlan.length
   taskStatus.value =
@@ -1296,7 +1310,8 @@ function handleParentMessage(ev: MessageEvent) {
   if (!data || data.type !== MSG_INSPECTION_DISPATCH || !data.dispatch) return
   void applyDispatchFromParent(data.dispatch, {
     autoStart: data.autoStart,
-    userInput: data.userInput
+    userInput: data.userInput,
+    recommendedFleet: data.recommendedFleet
   }).catch((e) => {
     const msg = e instanceof Error ? e.message : String(e)
     taskStatus.value = `Agent 下发失败: ${msg}`

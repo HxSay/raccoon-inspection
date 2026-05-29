@@ -85,12 +85,13 @@ public class ResultCheckAndFillService {
             }
         }
 
-        if (slots.getDeviceNames() == null || slots.getDeviceNames().isEmpty()) {
-            if (Boolean.TRUE.equals(slots.getInspectAllDevices()) && result.getResolvedMapId() != null) {
-                fillAllDevicesInArea(slots, result, userInput);
-            } else {
-                missing.add("巡检设备列表（deviceNames）");
-            }
+        boolean expandAll = Boolean.TRUE.equals(slots.getInspectAllDevices()) && result.getResolvedMapId() != null;
+        if (expandAll) {
+            // 全量意图（「所有/全部杆塔」）：直接展开场景全部设备，
+            // 忽略 LLM 可能幻觉出的设备名清单（如凭空生成的「杆塔6~10」会导致设备不存在校验失败）。
+            fillAllDevicesInArea(slots, result, userInput);
+        } else if (slots.getDeviceNames() == null || slots.getDeviceNames().isEmpty()) {
+            missing.add("巡检设备列表（deviceNames）");
         } else if (result.getResolvedMapId() != null) {
             List<UavInspectionDevice> devices = catalogService.findDevicesByMapAndNames(
                     result.getResolvedMapId(), slots.getDeviceNames());
@@ -112,9 +113,41 @@ public class ResultCheckAndFillService {
             result.setNeedFollowUp(true);
             result.setFollowUpQuestion("请补充以下信息后再试：" + String.join("、", missing));
             log.info("槽位不完整，需追问: {}", result.getFollowUpQuestion());
+        } else if (!result.getResolvedDevices().isEmpty() && result.getResolvedMapId() != null) {
+            fillFleetRecommendation(slots, result);
         }
 
         return result;
+    }
+
+    /**
+     * 机队推荐：以 LLM 给出的建议架数为准，按真实可用无人机数与待巡检设备数做边界裁剪；
+     * LLM 未给出时退化为「能用多少用多少」（min(设备数, 可用机数)）。理由优先用 LLM 文案。
+     */
+    private void fillFleetRecommendation(LlmTaskSlotResult slots, CheckResult result) {
+        int deviceCount = Math.max(1, result.getResolvedDevices().size());
+        int available = Math.max(1, catalogService.countActiveUavsByMap(result.getResolvedMapId()));
+        int upper = Math.min(deviceCount, available);
+        Integer llm = slots.getRecommendedDrones();
+        int recommend = (llm != null && llm >= 1) ? Math.min(llm, upper) : upper;
+        recommend = Math.max(1, recommend);
+        slots.setRecommendedDrones(recommend);
+        if (!StringUtils.hasText(slots.getFleetReason())) {
+            slots.setFleetReason(buildDefaultFleetReason(deviceCount, available, recommend));
+        }
+        log.info("机队推荐: 设备数={} 可用机={} LLM建议={} 最终={} 理由={}",
+                deviceCount, available, llm, recommend, slots.getFleetReason());
+    }
+
+    private String buildDefaultFleetReason(int deviceCount, int available, int recommend) {
+        if (deviceCount <= 1) {
+            return "仅 1 个巡检目标，派出距离最近的 1 架无人机即可，避免重复出动浪费续航。";
+        }
+        if (recommend <= 1) {
+            return String.format("共 %d 个巡检目标，但当前仅 %d 架无人机可用，使用 1 架顺序巡检。", deviceCount, available);
+        }
+        return String.format("共 %d 个巡检目标、%d 架无人机可用，调度 %d 架分段并行可显著缩短巡检时间并均衡续航消耗。",
+                deviceCount, available, recommend);
     }
 
     /**
