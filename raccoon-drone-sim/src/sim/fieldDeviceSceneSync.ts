@@ -9,12 +9,20 @@ export type FieldDeviceChannelMessage =
   | { type: 'DELETE'; sceneObjectId: string; mapId?: number }
   | { type: 'RELOAD'; mapId?: number }
 
-export function postFieldDeviceChannel(msg: FieldDeviceChannelMessage): void {
+let sharedChannel: BroadcastChannel | null = null
+
+function getChannel(): BroadcastChannel | null {
+  if (sharedChannel) return sharedChannel
   try {
-    new BroadcastChannel(FIELD_DEVICE_CHANNEL).postMessage(msg)
+    sharedChannel = new BroadcastChannel(FIELD_DEVICE_CHANNEL)
   } catch {
-    /* 部分环境无 BroadcastChannel */
+    sharedChannel = null
   }
+  return sharedChannel
+}
+
+export function postFieldDeviceChannel(msg: FieldDeviceChannelMessage): void {
+  getChannel()?.postMessage(msg)
 }
 
 /**

@@ -13,12 +13,45 @@ body,
   width: 100%;
 }
 
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 /* 工业监控后台：深色底 + 低饱和边框 */
 .industrial-app {
-  --ia-bg: #0a1018;
-  --ia-panel: #0f1824;
-  --ia-border: #1e3a52;
-  --ia-accent: #2a8fbd;
-  --ia-muted: #7a8fa3;
-  background: var(--ia-bg);
+  --ia-bg: #080d14;
+  --ia-panel: #0e1722;
+  --ia-panel-2: #101c2a;
+  --ia-elev: #14202f;
+  --ia-border: #1c3650;
+  --ia-border-soft: #16283b;
+  --ia-accent: #38a7d6;
+  --ia-accent-soft: rgba(56, 167, 214, 0.14);
+  --ia-text: #d6e2ee;
+  --ia-muted: #7e93a8;
+  --ia-radius: 8px;
+  --ia-radius-sm: 6px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(56, 167, 214, 0.06), transparent 60%),
+    var(--ia-bg);
+}
+
+/* 统一细滚动条（深色） */
+.industrial-app *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.industrial-app *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.industrial-app *::-webkit-scrollbar-thumb {
+  background: rgba(56, 167, 214, 0.22);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.industrial-app *::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 167, 214, 0.42);
+  background-clip: padding-box;
 }

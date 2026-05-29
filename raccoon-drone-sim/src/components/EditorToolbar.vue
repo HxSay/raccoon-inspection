@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick } from 'vue'
+import { computed, nextTick, unref } from 'vue'
 import type { ShallowRef } from 'vue'
 import type { SceneEditor3D } from '@/editor/SceneEditor3D'
 import type { EditorUiState, EditorPrimitiveKind, TransformToolMode } from '@/editor/types'
@@ -9,9 +9,10 @@ const props = defineProps<{
   ui: ShallowRef<EditorUiState | null>
 }>()
 
-const uiState = computed(() => props.ui?.value ?? null)
+/** 父模板会自动解包 ref，故收到的可能是实例本身；unref 同时兼容两种情况 */
+const uiState = computed(() => unref(props.ui) ?? null)
 
-const ed = () => props.editor?.value ?? null
+const ed = () => unref(props.editor) ?? null
 
 const dims = {
   wx: 4,
@@ -47,20 +48,20 @@ function grid() {
 function quickAdd(kind: EditorPrimitiveKind) {
   if (kind === 'imported') return
   void nextTick(() => {
-    props.editor?.value?.createPrimitiveAtViewCenter(kind, { ...dims })
+    ed()?.createPrimitiveAtViewCenter(kind, { ...dims })
   })
 }
 
 function place(kind: EditorPrimitiveKind) {
   if (kind === 'imported') return
   void nextTick(() => {
-    props.editor?.value?.beginPlacement(kind)
+    ed()?.beginPlacement(kind)
   })
 }
 
 function cancelPlace() {
   void nextTick(() => {
-    props.editor?.value?.cancelPlacement()
+    ed()?.cancelPlacement()
   })
 }
 
@@ -107,11 +108,12 @@ function onMoreCmd(cmd: string) {
 
 <template>
   <div
-    class="edit-toolbar-tools flex flex-wrap items-center justify-center gap-x-1 gap-y-1 font-mono text-[10px] text-[var(--ia-muted)]"
+    class="edit-toolbar-tools ia-edit-tools flex flex-wrap items-center justify-center gap-1 font-mono text-[10px] text-[var(--ia-muted)]"
   >
+    <span class="ia-edit-tag">编辑</span>
     <el-dropdown trigger="click" @command="onTransformCmd">
-      <el-button size="small" type="default" class="!font-mono">
-        变换 · {{ transformLabel }} <span class="ml-0.5 opacity-60">▾</span>
+      <el-button size="small" text class="ia-edit-btn" :class="{ 'is-on': true }">
+        变换 · {{ transformLabel }} <span class="ml-0.5 opacity-50">▾</span>
       </el-button>
       <template #dropdown>
         <el-dropdown-menu>
@@ -123,8 +125,8 @@ function onMoreCmd(cmd: string) {
     </el-dropdown>
 
     <el-dropdown trigger="click" @command="onGeometryCmd">
-      <el-button size="small" type="default" class="!font-mono">
-        几何（视野中心） <span class="ml-0.5 opacity-60">▾</span>
+      <el-button size="small" text class="ia-edit-btn">
+        几何 <span class="ml-0.5 opacity-50">▾</span>
       </el-button>
       <template #dropdown>
         <el-dropdown-menu>
@@ -139,8 +141,8 @@ function onMoreCmd(cmd: string) {
     </el-dropdown>
 
     <el-dropdown trigger="click" @command="onPlaceCmd">
-      <el-button size="small" type="default" class="!font-mono">
-        点击放置 <span class="ml-0.5 opacity-60">▾</span>
+      <el-button size="small" text class="ia-edit-btn" :class="{ 'is-on': !!uiState?.placementKind }">
+        点击放置 <span class="ml-0.5 opacity-50">▾</span>
       </el-button>
       <template #dropdown>
         <el-dropdown-menu>
@@ -152,8 +154,8 @@ function onMoreCmd(cmd: string) {
     </el-dropdown>
 
     <el-dropdown trigger="click" @command="onMoreCmd">
-      <el-button size="small" type="default" class="!font-mono">
-        更多 <span class="ml-0.5 opacity-60">▾</span>
+      <el-button size="small" text class="ia-edit-btn">
+        更多 <span class="ml-0.5 opacity-50">▾</span>
       </el-button>
       <template #dropdown>
         <el-dropdown-menu>
@@ -164,6 +166,38 @@ function onMoreCmd(cmd: string) {
         </el-dropdown-menu>
       </template>
     </el-dropdown>
-
   </div>
 </template>
+
+<style scoped>
+.ia-edit-tools {
+  padding: 2px 4px;
+  border: 1px solid var(--ia-border-soft);
+  border-radius: var(--ia-radius-sm);
+  background: rgba(255, 255, 255, 0.015);
+}
+.ia-edit-tag {
+  padding: 0 6px 0 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--ia-accent);
+  opacity: 0.85;
+}
+:deep(.ia-edit-btn) {
+  height: 26px;
+  padding: 0 9px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ia-text);
+  border-radius: 4px;
+}
+:deep(.ia-edit-btn:hover) {
+  background: var(--ia-accent-soft);
+  color: #eaf4fb;
+}
+:deep(.ia-edit-btn.is-on) {
+  background: rgba(56, 167, 214, 0.12);
+  color: #bfe3f4;
+}
+</style>

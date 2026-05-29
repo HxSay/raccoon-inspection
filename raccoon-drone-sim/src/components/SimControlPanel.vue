@@ -31,17 +31,38 @@ const routeFetchPlanIdModel = defineModel<number | undefined>('routeFetchPlanId'
 </script>
 
 <template>
-  <div class="sim-panel flex min-h-0 flex-1 flex-col overflow-hidden border-t border-[var(--ia-border)] bg-[var(--ia-panel)] font-mono text-[11px] text-[var(--ia-muted)]">
-    <div class="shrink-0 border-b border-[var(--ia-border)] px-2 py-1.5">
-      <div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">仿真场景</div>
-      <el-radio-group v-model="sceneTabModel" size="small" class="scene-tab-rg flex w-full flex-col gap-0.5">
-        <el-radio value="patrol" class="!mr-0">输电巡检场地</el-radio>
-        <el-radio value="substation" class="!mr-0">变电站场景</el-radio>
-        <el-radio value="thermal" class="!mr-0">火电站巡检</el-radio>
-      </el-radio-group>
+  <div class="sim-panel flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent font-mono text-[11px] text-[var(--ia-muted)]">
+    <div class="shrink-0 border-b border-[var(--ia-border)] px-3 py-2.5">
+      <div class="ia-side-title">仿真场景</div>
+      <div class="scene-seg mt-2">
+        <button
+          type="button"
+          class="scene-seg__item"
+          :class="{ 'is-active': sceneTabModel === 'patrol' }"
+          @click="sceneTabModel = 'patrol'"
+        >
+          输电巡检场地
+        </button>
+        <button
+          type="button"
+          class="scene-seg__item"
+          :class="{ 'is-active': sceneTabModel === 'substation' }"
+          @click="sceneTabModel = 'substation'"
+        >
+          变电站场景
+        </button>
+        <button
+          type="button"
+          class="scene-seg__item"
+          :class="{ 'is-active': sceneTabModel === 'thermal' }"
+          @click="sceneTabModel = 'thermal'"
+        >
+          火电站巡检
+        </button>
+      </div>
     </div>
 
-    <div class="sim-panel-scroll min-h-0 flex-1 overflow-y-auto px-2 py-2">
+    <div class="sim-panel-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
       <el-collapse class="sim-collapse" :model-value="['edge', 'view', 'deploy', 'fault', 'wp', 'tower', 'route']">
         <el-collapse-item title="边缘终端负载" name="edge">
           <div class="grid grid-cols-2 gap-2 text-[11px]">
@@ -164,6 +185,44 @@ const routeFetchPlanIdModel = defineModel<number | undefined>('routeFetchPlanId'
   scrollbar-width: thin;
 }
 
+.ia-side-title {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ia-accent);
+}
+
+/* 场景切换：分段卡片 */
+.scene-seg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scene-seg__item {
+  text-align: left;
+  padding: 7px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #c2d2e1;
+  background: var(--ia-elev);
+  border: 1px solid var(--ia-border-soft);
+  border-radius: var(--ia-radius-sm);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.scene-seg__item:hover {
+  border-color: var(--ia-border);
+  color: #e6f1f9;
+}
+.scene-seg__item.is-active {
+  color: #eaf6fc;
+  background: var(--ia-accent-soft);
+  border-color: var(--ia-accent);
+  box-shadow: inset 2px 0 0 var(--ia-accent);
+}
+
 :deep(.sim-collapse) {
   border: none;
   --el-collapse-header-bg-color: transparent;
@@ -173,27 +232,40 @@ const routeFetchPlanIdModel = defineModel<number | undefined>('routeFetchPlanId'
   font-family: ui-monospace, monospace;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ia-muted);
-  height: 32px;
-  line-height: 32px;
-  padding-left: 4px;
-  border-bottom: 1px solid var(--ia-border);
+  height: 34px;
+  line-height: 34px;
+  padding-left: 10px;
+  border-bottom: 1px solid var(--ia-border-soft);
+  position: relative;
+  transition: color 0.16s ease;
+}
+:deep(.sim-collapse .el-collapse-item__header::before) {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--ia-accent);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+:deep(.sim-collapse .el-collapse-item__header.is-active) {
+  color: #d9e6f1;
+}
+:deep(.sim-collapse .el-collapse-item__header.is-active::before) {
+  opacity: 0.9;
 }
 :deep(.sim-collapse .el-collapse-item__wrap) {
   border: none;
 }
 :deep(.sim-collapse .el-collapse-item__content) {
-  padding: 8px 4px 10px;
-}
-
-:deep(.scene-tab-rg .el-radio) {
-  margin-right: 0;
-  height: auto;
-  line-height: 1.35;
-  font-size: 10px;
-  color: #c8d4e0;
+  padding: 8px 6px 12px 10px;
 }
 
 .ia-radio-tight :deep(.el-radio) {

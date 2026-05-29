@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch, computed } from 'vue'
+import { reactive, watch, computed, unref } from 'vue'
 import type { ShallowRef } from 'vue'
 import type { SceneEditor3D } from '@/editor/SceneEditor3D'
 import type { EditorUiState, SelectionProps } from '@/editor/types'
@@ -9,7 +9,9 @@ const props = defineProps<{
   ui: ShallowRef<EditorUiState | null>
 }>()
 
-const uiState = computed(() => props.ui?.value ?? null)
+/** 父模板会自动解包 ref；unref 兼容 ref 与实例两种情况 */
+const ed = () => unref(props.editor) ?? null
+const uiState = computed(() => unref(props.ui) ?? null)
 
 const form = reactive<Partial<SelectionProps>>({})
 
@@ -22,19 +24,22 @@ watch(
 )
 
 function apply() {
-  props.editor?.value?.applyProps(form)
+  ed()?.applyProps(form)
 }
 
 function del() {
-  props.editor?.value?.deleteSelected()
+  ed()?.deleteSelected()
 }
 </script>
 
 <template>
-  <div class="editor-props flex min-h-0 w-full flex-1 flex-col border-[var(--ia-border)] bg-[var(--ia-panel)] p-2 text-[11px]">
-    <div class="mb-2 font-mono text-[10px] uppercase tracking-wide text-[var(--ia-accent)]">属性</div>
+  <div class="editor-props flex min-h-0 w-full flex-1 flex-col overflow-y-auto bg-transparent p-3 text-[11px]">
+    <div class="ia-props-head">
+      <span class="ia-props-head__bar" />
+      <span class="ia-props-head__title">属性</span>
+    </div>
     <template v-if="uiState?.props">
-      <div class="mb-1 text-[9px] text-[var(--ia-muted)]">{{ form.label }} · {{ (form.ids?.length ?? 0) }} 项</div>
+      <div class="mb-2 text-[9px] text-[var(--ia-muted)]">{{ form.label }} · {{ (form.ids?.length ?? 0) }} 项</div>
       <div class="grid grid-cols-3 gap-1">
         <div><span class="text-[9px] text-[var(--ia-muted)]">X</span><el-input-number v-model="form.x!" size="small" class="!w-full" controls-position="right" @change="apply" /></div>
         <div><span class="text-[9px] text-[var(--ia-muted)]">Y</span><el-input-number v-model="form.y!" size="small" class="!w-full" controls-position="right" @change="apply" /></div>
@@ -71,6 +76,59 @@ function del() {
       </div>
       <el-button class="mt-3 !w-full" type="danger" size="small" plain @click="del">删除选中</el-button>
     </template>
-    <div v-else class="text-[10px] text-[var(--ia-muted)]">选中物体后编辑属性；Ctrl 多选可批量改材质与数值。</div>
+    <div v-else class="ia-props-empty">
+      <span class="ia-props-empty__icon">＋</span>
+      选中物体后编辑属性<br />Ctrl 多选可批量改材质与数值
+    </div>
   </div>
 </template>
+
+<style scoped>
+.ia-props-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ia-props-head__bar {
+  width: 3px;
+  height: 13px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--ia-accent), rgba(56, 167, 214, 0.25));
+}
+.ia-props-head__title {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #e7f1f8;
+}
+.ia-props-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 12px;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ia-muted);
+  border: 1px dashed var(--ia-border-soft);
+  border-radius: var(--ia-radius-sm);
+  background: rgba(255, 255, 255, 0.012);
+}
+.ia-props-empty__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+  color: var(--ia-accent);
+  border: 1px solid var(--ia-border);
+  border-radius: 50%;
+  opacity: 0.7;
+}
+</style>

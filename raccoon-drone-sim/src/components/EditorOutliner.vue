@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, unref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ShallowRef } from 'vue'
 import type { SceneEditor3D } from '@/editor/SceneEditor3D'
@@ -18,8 +18,9 @@ const props = withDefaults(
 const renameId = ref<string | null>(null)
 const renameText = ref('')
 
-const ed = () => props.editor?.value ?? null
-const st = computed(() => props.ui?.value ?? null)
+/** 父模板会自动解包 ref；unref 兼容 ref 与实例两种情况 */
+const ed = () => unref(props.editor) ?? null
+const st = computed(() => unref(props.ui) ?? null)
 
 function selectNode(id: string, ev: MouseEvent) {
   ed()?.selectById(id, ev.ctrlKey || ev.metaKey)

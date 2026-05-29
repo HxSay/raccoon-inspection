@@ -55,6 +55,8 @@ export class SceneEditor3D {
   private space: 'world' | 'local' = 'world'
   private placementKind: EditorPrimitiveKind | null = null
   private readonly selectedIds = new Set<string>()
+  /** id → 物体引用：兼容编辑器物体（editorId）与内置场景物体（scene:uuid） */
+  private readonly selectedObjById = new Map<string, THREE.Object3D>()
   private transformDragBefore = new Map<string, THREE.Matrix4>()
   private removeListeners: Array<() => void> = []
   private readonly _ndc = new THREE.Vector2()
@@ -425,10 +427,16 @@ export class SceneEditor3D {
     for (const id of [...this.selectedIds]) {
       const o = this.findByEditorId(id)
       if (!o) continue
-      const snap = this.serializeObject(o)
-      o.parent?.remove(o)
-      disposeObjectDeep(o)
-      this.history.push({ type: 'remove', id: snap.id, json: snap })
+      if (isEditorObject(o)) {
+        const snap = this.serializeObject(o)
+        o.parent?.remove(o)
+        disposeObjectDeep(o)
+        this.history.push({ type: 'remove', id: snap.id, json: snap })
+      } else {
+        // 内置场景物体：仅从场景移除（不入撤销栈，原始几何无法复原）
+        o.parent?.remove(o)
+        disposeObjectDeep(o)
+      }
     }
     this.clearSelection()
     this.emitUi()
@@ -525,7 +533,8 @@ export class SceneEditor3D {
   }
 
   selectById(id: string, additive: boolean): void {
-    this.select(id, additive)
+    const obj = this.findByEditorId(id)
+    this.select(id, additive, obj ?? undefined)
   }
 
   renameObject(id: string, label: string): void {
@@ -600,6 +609,17 @@ export class SceneEditor3D {
   }
 
   private findByEditorId(id: string): THREE.Object3D | null {
+    const cached = this.selectedObjById.get(id)
+    if (cached) return cached
+    if (id.startsWith('scene:')) {
+      const uuid = id.slice(6)
+      const world = this.opts.getWorld()
+      let found: THREE.Object3D | null = null
+      world?.traverse((o) => {
+        if (!found && o.uuid === uuid) found = o
+      })
+      return found
+    }
     const scan = (root: THREE.Object3D | null): THREE.Object3D | null => {
       if (!root) return null
       if (isEditorObject(root) && root.userData.editorId === id) return root
@@ -614,6 +634,7 @@ export class SceneEditor3D {
 
   private clearSelection(): void {
     this.selectedIds.clear()
+    this.selectedObjById.clear()
     this.transformControls.detach()
     this.selectionHelper.clear()
     this.axesGroup.clear()
@@ -622,9 +643,13 @@ export class SceneEditor3D {
     this.emitUi()
   }
 
-  private select(id: string, additive: boolean): void {
-    if (!additive) this.selectedIds.clear()
+  private select(id: string, additive: boolean, obj?: THREE.Object3D): void {
+    if (!additive) {
+      this.selectedIds.clear()
+      this.selectedObjById.clear()
+    }
     this.selectedIds.add(id)
+    if (obj) this.selectedObjById.set(id, obj)
     const primary = this.getPrimaryObject()
     if (primary) {
       if (this.selectedIds.size === 1) this.transformControls.attach(primary)
@@ -694,6 +719,9 @@ export class SceneEditor3D {
 
   private onPointerDown(e: PointerEvent): void {
     if (!this.active || e.button !== 0) return
+    // 正在拖拽或悬停在变换 gizmo 上：交给 TransformControls 处理，切勿清空/改变选择
+    const tc = this.transformControls as unknown as { dragging?: boolean; axis?: string | null }
+    if (tc.dragging === true || (tc.axis !== null && tc.axis !== undefined)) return
     const world = this.opts.getWorld()
     if (!world || !this.userRoot) return
     const rect = this.opts.canvas.getBoundingClientRect()
@@ -744,10 +772,72 @@ export class SceneEditor3D {
       e.stopPropagation()
       const id = (picked.userData as EditorEntityUserData).editorId
       const additive = e.ctrlKey || e.metaKey
-      this.select(id, additive)
+      this.select(id, additive, picked)
       return
     }
+
+    // 回退：选中内置场景物体（杆塔 / 设备等），可平移、旋转、缩放
+    const sceneEntity = this.pickSceneEntity(hits, world)
+    if (sceneEntity) {
+      e.preventDefault()
+      e.stopPropagation()
+      const id = 'scene:' + sceneEntity.uuid
+      this.select(id, e.ctrlKey || e.metaKey, sceneEntity)
+      return
+    }
+
     if (!e.shiftKey) this.clearSelection()
+  }
+
+  /**
+   * 从射线命中里挑选一个“内置场景实体”（World 下的顶层对象）。
+   * 跳过：业务锁定对象（noScenePick）、编辑器物体、线/点（电力线、航迹）、过大的地形/地面。
+   */
+  private pickSceneEntity(hits: THREE.Intersection[], world: THREE.Group): THREE.Object3D | null {
+    for (const h of hits) {
+      const o = h.object
+      if (!(o instanceof THREE.Mesh)) continue
+      if (this.isLockedChain(o)) continue
+      if (this.isUnderEditorRoots(o)) continue
+      const root = this.topLevelUnderWorld(o, world)
+      if (!root) continue
+      this._tmpBox.setFromObject(root)
+      if (this._tmpBox.isEmpty()) continue
+      this._tmpBox.getSize(this._tmpVec3)
+      const maxDim = Math.max(this._tmpVec3.x, this._tmpVec3.y, this._tmpVec3.z)
+      // 过大者视为地形/地面，跳过，避免误选整张地面
+      if (maxDim > 150) continue
+      return root
+    }
+    return null
+  }
+
+  private isLockedChain(o: THREE.Object3D): boolean {
+    let p: THREE.Object3D | null = o
+    while (p) {
+      if (p.userData?.noScenePick === true) return true
+      p = p.parent
+    }
+    return false
+  }
+
+  private isUnderEditorRoots(o: THREE.Object3D): boolean {
+    let p: THREE.Object3D | null = o
+    while (p) {
+      if (p === this.userRoot || p === this.importRoot) return true
+      p = p.parent
+    }
+    return false
+  }
+
+  private topLevelUnderWorld(o: THREE.Object3D, world: THREE.Group): THREE.Object3D | null {
+    let cur: THREE.Object3D | null = o
+    while (cur && cur.parent && cur.parent !== world) {
+      cur = cur.parent
+    }
+    if (!cur || cur.parent !== world) return null
+    if (cur === this.userRoot || cur === this.importRoot || cur === this.grid) return null
+    return cur
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -848,11 +938,11 @@ export class SceneEditor3D {
       if (!mat && c instanceof THREE.Mesh && c.material) mat = c.material as THREE.MeshStandardMaterial
     })
     const mp = mat ? cloneMaterialProps(mat) : { color: '#888888', metalness: 0.2, roughness: 0.5, opacity: 1, transparent: false }
-    const ud = o.userData as EditorEntityUserData
+    const ud = o.userData as Partial<EditorEntityUserData>
     return {
       ids: [...this.selectedIds],
       single: this.selectedIds.size === 1,
-      label: ud.editorLabel,
+      label: ud.editorLabel || o.name || o.type,
       x: o.position.x,
       y: o.position.y,
       z: o.position.z,

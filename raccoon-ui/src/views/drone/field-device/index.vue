@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { droneMapOptions, type UavMapOption } from '@/api/drone'
-import { postFieldDeviceChannel } from '@/utils/fieldDeviceChannel'
+import { postFieldDeviceChannel, subscribeFieldDeviceChannel } from '@/utils/fieldDeviceChannel'
 import {
   fieldSceneDevicePage,
   fieldSceneDeviceCreate,
@@ -181,6 +181,16 @@ const goSim = () => {
 
 const typeLabel = (t: string) => DEVICE_TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t
 
+let reloadTimer: ReturnType<typeof setTimeout> | null = null
+let unsubscribeChannel: (() => void) | null = null
+
+const scheduleReload = () => {
+  if (reloadTimer) clearTimeout(reloadTimer)
+  reloadTimer = setTimeout(() => {
+    void loadData()
+  }, 400)
+}
+
 onMounted(async () => {
   await loadMaps()
   try {
@@ -189,6 +199,13 @@ onMounted(async () => {
     /* 服务未就绪时忽略 */
   }
   await loadData()
+  unsubscribeChannel = subscribeFieldDeviceChannel(() => scheduleReload())
+})
+
+onBeforeUnmount(() => {
+  if (reloadTimer) clearTimeout(reloadTimer)
+  unsubscribeChannel?.()
+  unsubscribeChannel = null
 })
 </script>
 

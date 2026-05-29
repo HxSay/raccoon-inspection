@@ -60,6 +60,7 @@ import {
   applyCloudFieldDevicesToEditor,
   applySingleCloudDevice,
   FIELD_DEVICE_CHANNEL,
+  postFieldDeviceChannel,
   removeCloudDeviceFromEditor,
   type FieldDeviceChannelMessage
 } from '@/sim/fieldDeviceSceneSync'
@@ -407,7 +408,10 @@ function scheduleFieldDeviceSync() {
   fieldDeviceSyncTimer = setTimeout(() => {
     void syncFieldDevicesFromEditor(sceneEditor3dRef.value, sceneTab.value)
       .then((n) => {
-        if (n > 0) fieldDeviceSyncHint.value = `已同步 ${n} 个现场设备到管理平台`
+        fieldDeviceSyncHint.value =
+          n > 0 ? `已同步 ${n} 个现场设备到管理平台` : '现场设备已与管理平台一致'
+        const mapId = sceneTab.value === 'patrol' ? 1 : sceneTab.value === 'substation' ? 2 : 3
+        postFieldDeviceChannel({ type: 'RELOAD', mapId })
       })
       .catch((e) => {
         console.warn('[field-device] sync', e)
@@ -1358,32 +1362,42 @@ function try65535Demo() {
 
 <template>
   <div class="industrial-app flex h-full w-full min-h-0 flex-col border-t border-[var(--ia-border)] text-[#c8d4e0]">
-    <header class="edit-toolbar-header shrink-0 border-b border-[var(--ia-border)] bg-[#0a1018]/95">
-      <div class="edit-toolbar-row grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-2 py-1">
-        <div class="toolbar-slot-left flex min-w-0 flex-wrap items-center gap-1 justify-self-start">
-          <el-dropdown trigger="click" class="shrink-0 font-mono" @command="onSceneMenuCommand">
-            <el-button size="small" type="default" class="!font-mono">
-              场景菜单 <span class="ml-0.5 opacity-60">▾</span>
+    <header class="edit-toolbar-header shrink-0">
+      <div class="edit-toolbar-row grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-3 py-1.5">
+        <div class="toolbar-slot-left flex min-w-0 flex-wrap items-center gap-2 justify-self-start">
+          <div class="ia-brand">
+            <span class="ia-brand__dot" />
+            <span class="ia-brand__name">RACCOON</span>
+            <span class="ia-brand__sub">巡检仿真</span>
+          </div>
+          <div class="ia-btn-group">
+            <el-dropdown trigger="click" class="font-mono" @command="onSceneMenuCommand">
+              <el-button size="small" text class="ia-tb-btn">
+                场景菜单 <span class="ml-0.5 opacity-60">▾</span>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="save">保存场景</el-dropdown-item>
+                  <el-dropdown-item command="reset-current" divided>恢复默认（仅当前场景）…</el-dropdown-item>
+                  <el-dropdown-item command="reset-all">恢复默认（全部场景）…</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <span class="ia-btn-group__sep" />
+            <el-button size="small" text class="ia-tb-btn" @click="outlinerDrawerOpen = true">
+              场景对象
             </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="save">保存场景</el-dropdown-item>
-                <el-dropdown-item command="reset-current" divided>恢复默认（仅当前场景）…</el-dropdown-item>
-                <el-dropdown-item command="reset-all">恢复默认（全部场景）…</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button size="small" type="default" class="!font-mono" @click="outlinerDrawerOpen = true">
-            场景对象
-          </el-button>
+          </div>
         </div>
         <EditorToolbar :editor="sceneEditor3dRef" :ui="editorUiState" class="edit-toolbar-inner justify-self-center" />
-        <span
-          class="toolbar-slot-right hidden max-w-[14rem] truncate justify-self-end text-right font-mono text-[9px] text-[var(--ia-muted)] opacity-75 sm:inline"
-          title="Ctrl+Z / Ctrl+Y · Q 切换世界/局部 · WASD 平移视角 · Del 删除 · Ctrl 多选"
-        >
-          Ctrl+Z/Y · Q · WASD · Del
-        </span>
+        <div class="toolbar-slot-right hidden items-center justify-self-end sm:flex">
+          <span
+            class="ia-kbd-hint"
+            title="Ctrl+Z / Ctrl+Y · Q 切换世界/局部 · WASD 平移视角 · Del 删除 · Ctrl 多选"
+          >
+            <kbd>Ctrl</kbd><kbd>Z</kbd> · <kbd>Q</kbd> · <kbd>WASD</kbd> · <kbd>Del</kbd>
+          </span>
+        </div>
       </div>
     </header>
 
@@ -1398,8 +1412,8 @@ function try65535Demo() {
       <EditorOutliner layout="drawer" :editor="sceneEditor3dRef" :ui="editorUiState" />
     </el-drawer>
 
-    <div class="app-body flex min-h-0 flex-1 flex-col md:flex-row">
-      <aside class="app-left flex w-full min-h-0 shrink-0 flex-col border-[var(--ia-border)] md:w-72 md:border-r">
+    <div class="app-body flex min-h-0 flex-1 flex-col gap-0 md:flex-row">
+      <aside class="app-left flex w-full min-h-0 shrink-0 flex-col md:w-[18rem]">
         <SimControlPanel
           v-model:scene-tab="sceneTab"
           v-model:view-mode="viewMode"
@@ -1435,12 +1449,17 @@ function try65535Demo() {
         </div>
       </main>
 
-      <aside class="app-right flex w-full min-h-0 shrink-0 flex-col border-[var(--ia-border)] md:w-72 md:border-l">
-        <EditorProperties :editor="sceneEditor3dRef" :ui="editorUiState" class="min-h-0 flex-[1_1_48%]" />
+      <aside class="app-right flex w-full min-h-0 shrink-0 flex-col md:w-[18rem]">
+        <EditorProperties :editor="sceneEditor3dRef" :ui="editorUiState" class="min-h-0 flex-[1_1_46%]" />
 
-        <div class="drone-control-panel flex min-h-0 flex-[1_1_52%] flex-col gap-2 overflow-y-auto border-t border-[var(--ia-border)] bg-[var(--ia-panel)] p-3">
-          <div class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--ia-accent)]">无人机控制</div>
-          <p class="font-mono text-[9px] leading-tight text-[var(--ia-muted)]">任务与遥测；仿真场景与参数在左侧栏。</p>
+        <div class="drone-control-panel flex min-h-0 flex-[1_1_54%] flex-col gap-3 overflow-y-auto border-t border-[var(--ia-border)] bg-[var(--ia-panel)] p-3">
+          <div class="ia-panel-head">
+            <span class="ia-panel-head__bar" />
+            <div>
+              <div class="ia-panel-head__title">无人机控制</div>
+              <p class="ia-panel-head__desc">任务与遥测 · 场景参数见左侧栏</p>
+            </div>
+          </div>
 
           <el-card v-if="sceneTab === 'patrol' || sceneTab === 'thermal'" shadow="never" class="ia-card">
             <template #header>任务控制</template>
@@ -1455,7 +1474,7 @@ function try65535Demo() {
             <p class="font-mono text-[10px] leading-relaxed text-[var(--ia-muted)]">当前为变电站浏览场景，无航线任务仿真。</p>
           </el-card>
 
-          <div class="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--ia-muted)]">遥测</div>
+          <div class="ia-section-label">遥测</div>
           <el-descriptions :column="1" border size="small" class="ia-desc">
             <el-descriptions-item label="X / m">{{ telemetry?.position.x.toFixed(1) ?? '—' }}</el-descriptions-item>
             <el-descriptions-item label="Y / m">{{ telemetry?.position.y.toFixed(1) ?? '—' }}</el-descriptions-item>
@@ -1559,22 +1578,172 @@ function try65535Demo() {
 </template>
 
 <style scoped>
+/* ---------- 顶部栏 ---------- */
+.edit-toolbar-header {
+  background: linear-gradient(180deg, #0c1622 0%, #0a121c 100%);
+  border-bottom: 1px solid var(--ia-border);
+  box-shadow: 0 1px 0 rgba(56, 167, 214, 0.06), 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.ia-brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-right: 10px;
+  margin-right: 2px;
+  border-right: 1px solid var(--ia-border-soft);
+  user-select: none;
+}
+.ia-brand__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ia-accent);
+  box-shadow: 0 0 8px var(--ia-accent);
+  align-self: center;
+}
+.ia-brand__name {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #e7f1f8;
+}
+.ia-brand__sub {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ia-muted);
+}
+
+.ia-btn-group {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--ia-border-soft);
+  border-radius: var(--ia-radius-sm);
+  background: rgba(255, 255, 255, 0.015);
+}
+.ia-btn-group__sep {
+  width: 1px;
+  height: 16px;
+  background: var(--ia-border-soft);
+  margin: 0 2px;
+}
+:deep(.ia-tb-btn) {
+  height: 26px;
+  padding: 0 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ia-text);
+  border-radius: 4px;
+}
+:deep(.ia-tb-btn:hover) {
+  background: var(--ia-accent-soft);
+  color: #eaf4fb;
+}
+
+.ia-kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  color: var(--ia-muted);
+}
+.ia-kbd-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #b8cad9;
+  background: #0c1722;
+  border: 1px solid var(--ia-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+/* ---------- 侧栏外框 ---------- */
+.app-left {
+  background: linear-gradient(180deg, var(--ia-panel-2) 0%, var(--ia-panel) 100%);
+  border-right: 1px solid var(--ia-border);
+}
+.app-right {
+  background: linear-gradient(180deg, var(--ia-panel-2) 0%, var(--ia-panel) 100%);
+  border-left: 1px solid var(--ia-border);
+}
+
+/* ---------- 分区标题 ---------- */
+.ia-panel-head {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.ia-panel-head__bar {
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--ia-accent), rgba(56, 167, 214, 0.25));
+  flex-shrink: 0;
+}
+.ia-panel-head__title {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e7f1f8;
+}
+.ia-panel-head__desc {
+  margin-top: 2px;
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  line-height: 1.3;
+  color: var(--ia-muted);
+}
+
+.ia-section-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ia-muted);
+  margin-top: 2px;
+}
+.ia-section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--ia-border), transparent);
+}
+
+/* ---------- 卡片 ---------- */
 .ia-card {
-  --el-card-bg-color: #0c141c;
+  --el-card-bg-color: var(--ia-elev);
+  --el-card-border-color: var(--ia-border-soft);
+  border-radius: var(--ia-radius-sm);
+  overflow: hidden;
+  transition: border-color 0.18s ease;
+}
+.ia-card:hover {
   --el-card-border-color: var(--ia-border);
-  border-radius: 2px;
 }
 :deep(.ia-card .el-card__header) {
-  padding: 6px 10px;
+  padding: 7px 11px;
   font-size: 11px;
   font-family: ui-monospace, monospace;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ia-muted);
-  border-bottom: 1px solid var(--ia-border);
+  background: rgba(56, 167, 214, 0.04);
+  border-bottom: 1px solid var(--ia-border-soft);
 }
 :deep(.ia-card .el-card__body) {
-  padding: 10px;
+  padding: 10px 11px;
 }
 
 :deep(.ia-card.ia-card-deploy-tight .el-card__header) {
@@ -1663,18 +1832,12 @@ function try65535Demo() {
 }
 
 .edit-toolbar-row {
-  min-height: 36px;
+  min-height: 42px;
 }
 
 :deep(.edit-toolbar-inner) {
-  border-bottom: none !important;
-  background: transparent !important;
-  padding: 0 !important;
   width: max-content;
   max-width: 100%;
-}
-
-:deep(.edit-toolbar-inner .edit-toolbar-tools) {
   justify-content: center;
 }
 
