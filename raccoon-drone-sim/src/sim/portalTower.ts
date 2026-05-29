@@ -64,7 +64,7 @@ export function createPortalTower(
   conc: THREE.MeshStandardMaterial,
   insLight: THREE.MeshStandardMaterial,
   insDark: THREE.MeshStandardMaterial
-): { wireTips: THREE.Vector3[] } {
+): { wireTips: THREE.Vector3[]; tower: THREE.Group; wireTipsLocal: THREE.Vector3[] } {
   const tower = new THREE.Group()
   tower.position.set(tx, 0, tz)
   world.add(tower)
@@ -102,6 +102,7 @@ export function createPortalTower(
   const armYs = [h * 0.52, h * 0.68, h * 0.84]
   const armLens = [6.2, 9.2, 6.8]
   const tips: THREE.Vector3[] = []
+  const tipsLocal: THREE.Vector3[] = []
 
   for (let li = 0; li < 3; li++) {
     const y0 = armYs[li]
@@ -115,10 +116,15 @@ export function createPortalTower(
       const zTip = sgn * (half - 0.2)
       const tip = addInsulatorHang(tower, y0 - 0.28, zTip, li === 1 ? 12 : 10, li === 1 ? insDark : insLight)
       tips.push(new THREE.Vector3(tip.x + tx, tip.y, tip.z + tz))
+      tipsLocal.push(new THREE.Vector3(tip.x, tip.y, tip.z))
     }
   }
 
-  return { wireTips: tips }
+  // 记录挂点的塔局部坐标，便于移动/旋转杆塔后重建导线
+  tower.userData.patrolTower = true
+  tower.userData.patrolTowerTipsLocal = tipsLocal
+
+  return { wireTips: tips, tower, wireTipsLocal: tipsLocal }
 }
 
 /** 将构架塔 6 个挂点转为输电线路左右三相锚点 */

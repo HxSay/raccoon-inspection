@@ -25,6 +25,8 @@ export interface SceneEditor3DOptions {
   getScene: () => THREE.Scene | null
   getActiveTab: () => 'patrol' | 'substation' | 'thermal'
   onUiChange: (s: EditorUiState) => void
+  /** 内置场景物体（如杆塔）被移动/旋转/缩放后回调，宿主可据此重建依赖几何（如导线） */
+  onSceneEntityTransform?: (obj: THREE.Object3D) => void
 }
 
 function disposeObjectDeep(root: THREE.Object3D): void {
@@ -81,8 +83,18 @@ export class SceneEditor3D {
     this.transformControls.addEventListener('change', () => {
       this.boxHelper?.update()
       this.syncAxesToPrimary()
+      this.notifySceneTransformIfNeeded()
       this.emitUi()
     })
+  }
+
+  /** 若当前主选对象是内置场景实体（非编辑器物体），通知宿主重建依赖几何（如导线） */
+  private notifySceneTransformIfNeeded(): void {
+    if (!this.opts.onSceneEntityTransform) return
+    const primary = this.getPrimaryObject()
+    if (primary && !isEditorObject(primary)) {
+      this.opts.onSceneEntityTransform(primary)
+    }
   }
 
   bindWorld(world: THREE.Group, scene: THREE.Scene): void {
@@ -419,6 +431,7 @@ export class SceneEditor3D {
       obj.updateMatrixWorld(true)
     }
     this.refreshHighlights()
+    this.notifySceneTransformIfNeeded()
     this.emitUi()
   }
 
@@ -752,92 +765,76 @@ export class SceneEditor3D {
       return
     }
 
+    // 对整个场景做射线检测：可命中 world 下的杆塔/机巢/终端，以及挂在 scene 下的无人机等
+    const scene = this.opts.getScene()
+    const pickRoot = scene ?? world
     this.raycaster.setFromCamera(new THREE.Vector2(mx, my), this.opts.camera)
     this.raycaster.layers.mask = this.opts.camera.layers.mask
-    const hits = this.raycaster.intersectObject(world, true)
-    let picked: THREE.Object3D | null = null
-    for (const h of hits) {
-      let o: THREE.Object3D | null = h.object
-      while (o) {
-        if (isEditorObject(o)) {
-          picked = o
-          break
-        }
-        o = o.parent
-      }
-      if (picked) break
-    }
-    if (picked) {
-      e.preventDefault()
-      e.stopPropagation()
-      const id = (picked.userData as EditorEntityUserData).editorId
-      const additive = e.ctrlKey || e.metaKey
-      this.select(id, additive, picked)
-      return
-    }
+    const hits = this.raycaster.intersectObject(pickRoot, true)
+    const additive = e.ctrlKey || e.metaKey
 
-    // 回退：选中内置场景物体（杆塔 / 设备等），可平移、旋转、缩放
-    const sceneEntity = this.pickSceneEntity(hits, world)
-    if (sceneEntity) {
+    for (const h of hits) {
+      const o = h.object
+      if (!(o instanceof THREE.Mesh)) continue
+
+      // 1) 编辑器自建物体
+      let eo: THREE.Object3D | null = o
+      while (eo && !isEditorObject(eo)) eo = eo.parent
+      if (eo && isEditorObject(eo)) {
+        e.preventDefault()
+        e.stopPropagation()
+        this.select((eo.userData as EditorEntityUserData).editorId, additive, eo)
+        return
+      }
+
+      // 2) 内置场景实体（杆塔 / 机巢 / 终端 / 无人机 等），可平移、旋转、缩放
+      if (o.userData?.patrolWire === true) continue
+      if (this.isEditorOwned(o)) continue
+      const root = this.topLevelEntity(o, world, scene)
+      if (!root || root === world) continue
+      this._tmpBox.setFromObject(root)
+      if (this._tmpBox.isEmpty()) continue
+      this._tmpBox.getSize(this._tmpVec3)
+      const maxDim = Math.max(this._tmpVec3.x, this._tmpVec3.y, this._tmpVec3.z)
+      // 过大者视为地形/天空，跳过，避免误选整张地面
+      if (maxDim > 150) continue
       e.preventDefault()
       e.stopPropagation()
-      const id = 'scene:' + sceneEntity.uuid
-      this.select(id, e.ctrlKey || e.metaKey, sceneEntity)
+      this.select('scene:' + root.uuid, additive, root)
       return
     }
 
     if (!e.shiftKey) this.clearSelection()
   }
 
-  /**
-   * 从射线命中里挑选一个“内置场景实体”（World 下的顶层对象）。
-   * 跳过：业务锁定对象（noScenePick）、编辑器物体、线/点（电力线、航迹）、过大的地形/地面。
-   */
-  private pickSceneEntity(hits: THREE.Intersection[], world: THREE.Group): THREE.Object3D | null {
-    for (const h of hits) {
-      const o = h.object
-      if (!(o instanceof THREE.Mesh)) continue
-      if (this.isLockedChain(o)) continue
-      if (this.isUnderEditorRoots(o)) continue
-      const root = this.topLevelUnderWorld(o, world)
-      if (!root) continue
-      this._tmpBox.setFromObject(root)
-      if (this._tmpBox.isEmpty()) continue
-      this._tmpBox.getSize(this._tmpVec3)
-      const maxDim = Math.max(this._tmpVec3.x, this._tmpVec3.y, this._tmpVec3.z)
-      // 过大者视为地形/地面，跳过，避免误选整张地面
-      if (maxDim > 150) continue
-      return root
-    }
-    return null
-  }
-
-  private isLockedChain(o: THREE.Object3D): boolean {
+  /** 是否属于编辑器自身的辅助对象（不可作为可选实体） */
+  private isEditorOwned(o: THREE.Object3D): boolean {
     let p: THREE.Object3D | null = o
     while (p) {
-      if (p.userData?.noScenePick === true) return true
+      if (
+        p === this.userRoot ||
+        p === this.importRoot ||
+        p === this.grid ||
+        p === this.transformControls ||
+        p === this.selectionHelper ||
+        p === this.axesGroup ||
+        (p as unknown as { isTransformControls?: boolean }).isTransformControls === true
+      ) {
+        return true
+      }
       p = p.parent
     }
     return false
   }
 
-  private isUnderEditorRoots(o: THREE.Object3D): boolean {
-    let p: THREE.Object3D | null = o
-    while (p) {
-      if (p === this.userRoot || p === this.importRoot) return true
-      p = p.parent
-    }
-    return false
-  }
-
-  private topLevelUnderWorld(o: THREE.Object3D, world: THREE.Group): THREE.Object3D | null {
-    let cur: THREE.Object3D | null = o
-    while (cur && cur.parent && cur.parent !== world) {
+  /** 上溯到 world 或 scene 的直接子对象，作为一个可整体操作的实体 */
+  private topLevelEntity(o: THREE.Object3D, world: THREE.Group, scene: THREE.Scene | null): THREE.Object3D | null {
+    let cur: THREE.Object3D = o
+    while (cur.parent && cur.parent !== world && cur.parent !== scene) {
       cur = cur.parent
     }
-    if (!cur || cur.parent !== world) return null
-    if (cur === this.userRoot || cur === this.importRoot || cur === this.grid) return null
-    return cur
+    if (cur.parent === world || cur.parent === scene) return cur
+    return null
   }
 
   private onKeyDown(e: KeyboardEvent): void {

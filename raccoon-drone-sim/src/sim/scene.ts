@@ -27,6 +27,8 @@ export interface PowerlineSceneBundle {
   corridorHomes: THREE.Vector3[]
   /** 边缘控制终端部署世界坐标（用于场景摆放） */
   terminalPosition: THREE.Vector3
+  /** 杆塔被移动/旋转后，按其当前挂点位置重建导线（编辑器调用） */
+  rebuildPowerlineWires: () => void
   dispose: () => void
 }
 
@@ -69,6 +71,7 @@ function addWireSpan(
   const tubularSegments = Math.min(128, Math.max(48, Math.floor(span * 0.35)))
   const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSegments, 0.052, 6, false), mat)
   tube.castShadow = true
+  tube.userData.patrolWire = true
   world.add(tube)
 
   const nSp = Math.min(10, Math.max(2, Math.floor(span / 28)))
@@ -80,6 +83,7 @@ function addWireSpan(
     sp.position.copy(p)
     sp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan.clone().normalize())
     sp.castShadow = true
+    sp.userData.patrolWire = true
     world.add(sp)
   }
 }
@@ -167,12 +171,33 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
 
   const zRow = PATROL_CORRIDOR_Z0
   const towerAnchors: LineTowerWireAnchors[] = []
+  const towerGroups: THREE.Group[] = []
   for (let i = 0; i < xs.length; i++) {
     const h = heights[i]!
-    const { wireTips } = createPortalTower(world, xs[i], zRow, h, steel, concMat, insLight, insDark)
+    const { wireTips, tower } = createPortalTower(world, xs[i], zRow, h, steel, concMat, insLight, insDark)
     towerAnchors.push(wireTipsToLineAnchors(wireTips))
+    towerGroups.push(tower)
   }
   buildLineBetweenTowers(towerAnchors, world, wireMat, spacerMat)
+
+  /** 依据杆塔当前世界挂点重建全部导线（移动/旋转/缩放杆塔后调用） */
+  const rebuildPowerlineWires = () => {
+    const stale: THREE.Object3D[] = []
+    world.traverse((o) => {
+      if (o.userData?.patrolWire === true) stale.push(o)
+    })
+    for (const m of stale) {
+      m.parent?.remove(m)
+      if (m instanceof THREE.Mesh) m.geometry?.dispose()
+    }
+    const anchors: LineTowerWireAnchors[] = towerGroups.map((t) => {
+      t.updateMatrixWorld(true)
+      const localTips = (t.userData.patrolTowerTipsLocal as THREE.Vector3[]) ?? []
+      const worldTips = localTips.map((lt) => t.localToWorld(lt.clone()))
+      return wireTipsToLineAnchors(worldTips)
+    })
+    buildLineBetweenTowers(anchors, world, wireMat, spacerMat)
+  }
 
   const sky = new Sky()
   sky.scale.setScalar(450000)
@@ -259,5 +284,5 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
     spacerMat.dispose()
   }
 
-  return { scene, world, homePosition, corridorHomes, terminalPosition, dispose }
+  return { scene, world, homePosition, corridorHomes, terminalPosition, rebuildPowerlineWires, dispose }
 }

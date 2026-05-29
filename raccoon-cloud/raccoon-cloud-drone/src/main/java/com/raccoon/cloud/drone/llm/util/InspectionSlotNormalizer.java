@@ -22,6 +22,9 @@ public class InspectionSlotNormalizer {
     private static final Pattern TOWER_SINGLE = Pattern.compile("(?:杆塔|塔杆|#?塔)\\s*(\\d+)");
     private static final Pattern TOWER_LIST_BLOCK =
             Pattern.compile("(?:杆塔|塔杆|#?塔)\\s*([\\d\\s、,，和及到至\\-]+)");
+    /** 数字在前的口语：「4号塔杆」「4号杆塔」「4号塔」「4#塔」 */
+    private static final Pattern TOWER_NUM_PREFIX =
+            Pattern.compile("(\\d+)\\s*(?:号|#)\\s*(?:杆塔|塔杆|塔)");
 
     /** 口语：所有/全部/全体 + 杆塔/设备/塔 */
     private static final Pattern ALL_DEVICES_INTENT =
@@ -88,7 +91,8 @@ public class InspectionSlotNormalizer {
         if (text.contains("杆塔") || text.contains("塔杆")) {
             return true;
         }
-        if (TOWER_SINGLE.matcher(text).find() || TOWER_LIST_BLOCK.matcher(text).find()) {
+        if (TOWER_SINGLE.matcher(text).find() || TOWER_LIST_BLOCK.matcher(text).find()
+                || TOWER_NUM_PREFIX.matcher(text).find()) {
             return true;
         }
         return false;
@@ -99,6 +103,10 @@ public class InspectionSlotNormalizer {
         Matcher single = TOWER_SINGLE.matcher(text);
         while (single.find()) {
             indices.add(Integer.parseInt(single.group(1)));
+        }
+        Matcher prefix = TOWER_NUM_PREFIX.matcher(text);
+        while (prefix.find()) {
+            indices.add(Integer.parseInt(prefix.group(1)));
         }
         Matcher block = TOWER_LIST_BLOCK.matcher(text);
         while (block.find()) {
@@ -124,6 +132,10 @@ public class InspectionSlotNormalizer {
         Matcher m = Pattern.compile("(?:杆塔|塔杆|塔)(\\d+)").matcher(s);
         if (m.find()) {
             return "杆塔" + m.group(1);
+        }
+        Matcher mp = TOWER_NUM_PREFIX.matcher(s);
+        if (mp.find()) {
+            return "杆塔" + mp.group(1);
         }
         return s;
     }

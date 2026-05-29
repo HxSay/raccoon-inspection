@@ -276,6 +276,8 @@ let patrolFleetUavIds: number[] = []
 let fleetCloudPaths: import('@/sim/types').CloudPathPoint[][] = []
 let nest: DroneNest | null = null
 let terminal: EdgeTerminal3D | null = null
+/** 杆塔被移动后导线重建的合帧标志（每帧最多重建一次） */
+let wireRebuildScheduled = false
 /** 每架巡逻机独立遥测通道（避免一机结束 stop 掉共享 10Hz 定时器） */
 let stateReports: StateReportService[] = []
 let edgeCloudReporters: EdgeCloudTelemetryReporter[] = []
@@ -922,6 +924,16 @@ function initThree(): () => void {
     getActiveTab: () => sceneTab.value,
     onUiChange: (s) => {
       editorUiState.value = s
+    },
+    onSceneEntityTransform: (obj) => {
+      // 移动/旋转/缩放杆塔后，按其当前挂点重建导线（合帧，避免每次 change 都重建）
+      if (sceneTab.value !== 'patrol' || obj.userData?.patrolTower !== true) return
+      if (wireRebuildScheduled) return
+      wireRebuildScheduled = true
+      requestAnimationFrame(() => {
+        wireRebuildScheduled = false
+        sceneBundle?.rebuildPowerlineWires()
+      })
     }
   })
   sceneEditor3dRef.value.mountInputHandlers()
