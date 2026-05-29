@@ -3,12 +3,14 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { droneMapOptions, type UavMapOption } from '@/api/drone'
+import { postFieldDeviceChannel } from '@/utils/fieldDeviceChannel'
 import {
   fieldSceneDevicePage,
   fieldSceneDeviceCreate,
   fieldSceneDeviceUpdate,
   fieldSceneDeviceDelete,
   fieldSceneDeviceInitBuiltin,
+  fieldSceneDeviceBackfill,
   DEVICE_TYPE_OPTIONS,
   SYNC_SOURCE_LABEL,
   type FieldSceneDeviceVO
@@ -118,12 +120,20 @@ const submit = async () => {
   saving.value = true
   try {
     const payload = { ...form, syncSource: 'MANUAL' }
+    let saved: FieldSceneDeviceVO
     if (form.id) {
-      await fieldSceneDeviceUpdate(form.id, payload)
+      const res: any = await fieldSceneDeviceUpdate(form.id, payload)
+      saved = res.data
       ElMessage.success('已更新')
     } else {
-      await fieldSceneDeviceCreate(payload)
+      const res: any = await fieldSceneDeviceCreate(payload)
+      saved = res.data
       ElMessage.success('已添加')
+    }
+    if (saved?.sceneObjectId && saved.sceneX != null) {
+      postFieldDeviceChannel({ type: 'UPSERT', device: saved })
+    } else {
+      postFieldDeviceChannel({ type: 'RELOAD', mapId: saved?.mapId })
     }
     dialogVisible.value = false
     loadData()
@@ -137,7 +147,11 @@ const submit = async () => {
 const remove = async (row: FieldSceneDeviceVO) => {
   await ElMessageBox.confirm(`确定删除「${row.deviceName}」？`, '提示', { type: 'warning' })
   try {
+    const oid = row.sceneObjectId
     await fieldSceneDeviceDelete(row.id!)
+    if (oid) {
+      postFieldDeviceChannel({ type: 'DELETE', sceneObjectId: oid, mapId: row.mapId })
+    }
     ElMessage.success('已删除')
     loadData()
   } catch (e: any) {
@@ -147,7 +161,17 @@ const remove = async (row: FieldSceneDeviceVO) => {
 
 const initBuiltin = async () => {
   const res: any = await fieldSceneDeviceInitBuiltin()
-  ElMessage.success(`已初始化 ${res.data?.initialized ?? 0} 基内置杆塔坐标`)
+  const n = res.data?.initialized ?? 0
+  const b = res.data?.backfilled ?? 0
+  ElMessage.success(`已初始化 ${n} 基杆塔坐标，并回填 ${b} 条设备`)
+  postFieldDeviceChannel({ type: 'RELOAD' })
+  loadData()
+}
+
+const backfillCoords = async () => {
+  const res: any = await fieldSceneDeviceBackfill(query.mapId)
+  ElMessage.success(`已回填 ${res.data?.backfilled ?? 0} 条设备坐标`)
+  postFieldDeviceChannel({ type: 'RELOAD', mapId: query.mapId })
   loadData()
 }
 
@@ -159,6 +183,11 @@ const typeLabel = (t: string) => DEVICE_TYPE_OPTIONS.find((o) => o.value === t)?
 
 onMounted(async () => {
   await loadMaps()
+  try {
+    await fieldSceneDeviceBackfill()
+  } catch {
+    /* 服务未就绪时忽略 */
+  }
   await loadData()
 })
 </script>
@@ -169,10 +198,11 @@ onMounted(async () => {
       <div>
         <h2 class="page-title">现场设备管理</h2>
         <p class="page-desc">
-          对应仿真场景中的杆塔、阀门等设备；在仿真 3D 编辑器中添加物体会自动同步到此。与 CMMS「设备台账」相互独立。
+          与仿真场景一一对应：坐标自动对齐内置几何；在此新增设备会出现在仿真场景，在仿真编辑器中添加物体会同步到此表。
         </p>
       </div>
       <div class="header-actions">
+        <el-button @click="backfillCoords">回填场景坐标</el-button>
         <el-button @click="initBuiltin">初始化内置杆塔</el-button>
         <el-button @click="goSim">打开仿真场景</el-button>
         <el-button type="primary" @click="openCreate">新增设备</el-button>

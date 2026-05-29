@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { Sky } from 'three/examples/jsm/objects/Sky.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { createTerrainRoughnessTexture, createGalvanizedMetalTexture, createConcreteTexture, disposeTexture } from './textures'
-import { PATROL_LANE_COUNT, PATROL_LANE_Z_SPACING_M } from './constants'
+import { PATROL_FLEET_HOME_COUNT, PATROL_FLEET_HOME_X_SPACING_M } from './constants'
 import {
   PATROL_CORRIDOR_Z0,
   PATROL_GROUND_STATION,
@@ -23,7 +23,7 @@ export interface PowerlineSceneBundle {
   world: THREE.Group
   /** 起飞 / 返航锚点（与 edgeService 航线首点 XZ 对齐） */
   homePosition: THREE.Vector3
-  /** 各并排走廊的起飞位（索引与 `fetchCloudPlannedPath(..., laneIndex)` 一致） */
+  /** 机巢并排起飞位（索引与编队无人机、fetchCloudPlannedPath laneIndex 一致；不复制杆塔） */
   corridorHomes: THREE.Vector3[]
   /** 边缘控制终端部署世界坐标（用于场景摆放） */
   terminalPosition: THREE.Vector3
@@ -165,17 +165,14 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   }
   ;[concMat, steel, insLight, insDark, wireMat, spacerMat].forEach(markSkip)
 
-  const corridorZ0 = PATROL_CORRIDOR_Z0
-  for (let lane = 0; lane < PATROL_LANE_COUNT; lane++) {
-    const zRow = corridorZ0 + lane * PATROL_LANE_Z_SPACING_M
-    const towerAnchors: LineTowerWireAnchors[] = []
-    for (let i = 0; i < xs.length; i++) {
-      const h = heights[i] + (PATROL_LANE_COUNT > 1 ? (lane - 1) * 1.1 : 0)
-      const { wireTips } = createPortalTower(world, xs[i], zRow, h, steel, concMat, insLight, insDark)
-      towerAnchors.push(wireTipsToLineAnchors(wireTips))
-    }
-    buildLineBetweenTowers(towerAnchors, world, wireMat, spacerMat)
+  const zRow = PATROL_CORRIDOR_Z0
+  const towerAnchors: LineTowerWireAnchors[] = []
+  for (let i = 0; i < xs.length; i++) {
+    const h = heights[i]!
+    const { wireTips } = createPortalTower(world, xs[i], zRow, h, steel, concMat, insLight, insDark)
+    towerAnchors.push(wireTipsToLineAnchors(wireTips))
   }
+  buildLineBetweenTowers(towerAnchors, world, wireMat, spacerMat)
 
   const sky = new Sky()
   sky.scale.setScalar(450000)
@@ -212,12 +209,14 @@ export function createPowerlineScene(renderer: THREE.WebGLRenderer): PowerlineSc
   const towerMarkers = createTowerCoordMarkers(world)
 
   const corridorHomes: THREE.Vector3[] = []
-  for (let lane = 0; lane < PATROL_LANE_COUNT; lane++) {
+  const fleetN = Math.max(1, PATROL_FLEET_HOME_COUNT)
+  const xCenter = (fleetN - 1) * 0.5
+  for (let i = 0; i < fleetN; i++) {
     corridorHomes.push(
       new THREE.Vector3(
-        PATROL_NEST_HOME.x,
+        PATROL_NEST_HOME.x + (i - xCenter) * PATROL_FLEET_HOME_X_SPACING_M,
         PATROL_NEST_HOME.y,
-        PATROL_NEST_HOME.z + lane * PATROL_LANE_Z_SPACING_M
+        PATROL_NEST_HOME.z
       )
     )
   }

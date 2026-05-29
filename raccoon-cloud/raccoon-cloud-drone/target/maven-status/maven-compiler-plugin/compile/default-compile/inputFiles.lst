@@ -42,6 +42,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-dr
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\service\TaskParseService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\algorithm\PpoSimulationModel.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\service\AuctionAssignService.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\service\FieldSceneCoordinateResolver.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\dto\DispatchSnapshotVO.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\enums\DispatchTaskStatusEnum.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\web\NlpTaskParseController.java

@@ -24,4 +24,7 @@ public interface FieldSceneDeviceService {
 
     /** 初始化输电场景内置杆塔坐标 */
     int initBuiltinPatrolTowers();
+
+    /** 为缺少坐标的现场设备按仿真场景几何回填 */
+    int backfillMissingCoordinates(Long mapId);
 }

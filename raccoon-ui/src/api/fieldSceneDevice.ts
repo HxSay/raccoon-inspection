@@ -77,4 +77,14 @@ export const fieldSceneDeviceDelete = (id: number) =>
   request({ url: `/drone/field-scene-device/${id}`, method: 'delete' })
 
 export const fieldSceneDeviceInitBuiltin = () =>
-  request<{ initialized: number }>({ url: '/drone/field-scene-device/init-builtin-towers', method: 'post' })
+  request<{ initialized: number; backfilled?: number }>({
+    url: '/drone/field-scene-device/init-builtin-towers',
+    method: 'post'
+  })
+
+export const fieldSceneDeviceBackfill = (mapId?: number) =>
+  request<{ backfilled: number }>({
+    url: '/drone/field-scene-device/backfill-coordinates',
+    method: 'post',
+    params: mapId != null ? { mapId } : undefined
+  })

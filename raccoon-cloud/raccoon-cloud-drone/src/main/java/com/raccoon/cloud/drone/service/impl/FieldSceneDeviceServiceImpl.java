@@ -13,6 +13,7 @@ import com.raccoon.cloud.drone.enums.FieldSceneDeviceTypeEnum;
 import com.raccoon.cloud.drone.llm.catalog.PatrolSceneGeometry;
 import com.raccoon.cloud.drone.mapper.UavInspectionDeviceMapper;
 import com.raccoon.cloud.drone.mapper.UavMapMapper;
+import com.raccoon.cloud.drone.service.FieldSceneCoordinateResolver;
 import com.raccoon.cloud.drone.service.FieldSceneDeviceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ public class FieldSceneDeviceServiceImpl implements FieldSceneDeviceService {
 
     private final UavInspectionDeviceMapper deviceMapper;
     private final UavMapMapper mapMapper;
+    private final FieldSceneCoordinateResolver coordinateResolver;
 
     @Override
     public Page<FieldSceneDeviceVO> page(long current, long size, Long mapId, String sceneType, String keyword) {
@@ -87,8 +89,11 @@ public class FieldSceneDeviceServiceImpl implements FieldSceneDeviceService {
             row.setSyncSource(StringUtils.hasText(request.getSyncSource()) ? request.getSyncSource() : SYNC_MANUAL);
         }
         applySave(row, request, map);
+        coordinateResolver.fillIfMissing(row, map);
         if (request.getId() == null) {
             deviceMapper.insert(row);
+            row.setSceneObjectId("cloud-" + row.getId());
+            deviceMapper.updateById(row);
         } else {
             deviceMapper.updateById(row);
         }
@@ -150,6 +155,7 @@ public class FieldSceneDeviceServiceImpl implements FieldSceneDeviceService {
             existing.setLocationDesc(item.getLocationDesc());
             existing.setRemark(item.getRemark());
             existing.setStatus(1);
+            coordinateResolver.fillIfMissing(existing, map);
 
             if (existing.getId() == null) {
                 deviceMapper.insert(existing);
@@ -186,7 +192,6 @@ public class FieldSceneDeviceServiceImpl implements FieldSceneDeviceService {
         int count = 0;
         for (int tower = 1; tower <= 5; tower++) {
             String name = "杆塔" + tower;
-            GeoPoint photo = PatrolSceneGeometry.towerPhotoPoint(tower);
             String objectId = "builtin-tower-" + tower;
 
             UavInspectionDevice row = deviceMapper.selectOne(
@@ -204,12 +209,13 @@ public class FieldSceneDeviceServiceImpl implements FieldSceneDeviceService {
             row.setSyncSource(SYNC_BUILTIN);
             row.setSceneObjectId(objectId);
             row.setSceneType("patrol");
-            row.setLongitude(photo.getLongitude());
-            row.setLatitude(photo.getLatitude());
-            row.setHeight(photo.getHeight());
+            GeoPoint center = PatrolSceneGeometry.towerCenterPoint(tower);
+            row.setLongitude(center.getLongitude());
+            row.setLatitude(center.getLatitude());
+            row.setHeight(center.getHeight());
             row.setSceneX(PatrolSceneGeometry.towerSceneX(tower));
-            row.setSceneY(photo.getHeight());
-            row.setSceneZ(PatrolSceneGeometry.CORRIDOR_Z0 + PatrolSceneGeometry.PHOTO_Z_OFFSET);
+            row.setSceneY(4.0);
+            row.setSceneZ(PatrolSceneGeometry.CORRIDOR_Z0);
             row.setLocationDesc(map.getMapName() + " · " + name);
             row.setRemark("内置杆塔（与仿真场景对齐）");
 
@@ -221,6 +227,33 @@ public class FieldSceneDeviceServiceImpl implements FieldSceneDeviceService {
             count++;
         }
         return count;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int backfillMissingCoordinates(Long mapId) {
+        LambdaQueryWrapper<UavInspectionDevice> w = new LambdaQueryWrapper<>();
+        if (mapId != null) {
+            w.eq(UavInspectionDevice::getMapId, mapId);
+        }
+        List<UavInspectionDevice> rows = deviceMapper.selectList(w);
+        Map<Long, UavMap> maps = loadMapCache();
+        int n = 0;
+        for (UavInspectionDevice row : rows) {
+            if (row.getStatus() != null && row.getStatus() == 0) {
+                continue;
+            }
+            UavMap map = maps.get(row.getMapId());
+            if (map == null) {
+                continue;
+            }
+            boolean changed = coordinateResolver.fillIfMissing(row, map);
+            if (changed) {
+                deviceMapper.updateById(row);
+                n++;
+            }
+        }
+        return n;
     }
 
     private void applySave(UavInspectionDevice row, FieldSceneDeviceSaveRequest req, UavMap map) {

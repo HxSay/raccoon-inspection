@@ -25,3 +25,6 @@ export const PATROL_AERIAL_CAMERA = { x: -120, y: 128, z: 200 } as const
 
 /** 线路走廊观察目标点 */
 export const PATROL_SCENE_LOOK = { x: 0, y: 38, z: PATROL_CORRIDOR_Z0 } as const
+
+/** 输电场景杆塔数量（与现场设备管理、后台 NLP 补齐逻辑一致） */
+export const PATROL_TOWER_COUNT = PATROL_TOWER_XS.length

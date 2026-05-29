@@ -10,7 +10,8 @@ import {
   HEADING_MODE_AUTO,
   INSPECTION_POINT_SPEED,
   MAX_FLIGHT_SPEED,
-  PATROL_LANE_Z_SPACING_M,
+  PATROL_FLEET_HOME_COUNT,
+  PATROL_FLEET_HOME_X_SPACING_M,
   PHOTO_GIMBAL_PITCH_DEG,
   RTK_MODE_FIXED
 } from './constants'
@@ -89,15 +90,15 @@ const PATROL_BASE_CLOUD_PATH: CloudPathPoint[] = buildPatrolBaseCloudPath()
 
 /**
  * 模拟云端下发规划路径（JSON）。生产环境此处对接真实云端接口。
- * @param laneIndex 并排走廊索引，与 `scene.corridorHomes` 及杆塔列 Z 偏移一致。
+ * @param laneIndex 机巢并排索引，与 `scene.corridorHomes` X 偏移一致（不复制杆塔列）。
  */
 export async function fetchCloudPlannedPath(deployMode: DeployMode, laneIndex = 0): Promise<CloudPathPoint[]> {
   await netDelay(deployMode)
-  const dz = laneIndex * PATROL_LANE_Z_SPACING_M
+  const dx = (laneIndex - (PATROL_FLEET_HOME_COUNT - 1) * 0.5) * PATROL_FLEET_HOME_X_SPACING_M
   return PATROL_BASE_CLOUD_PATH.map((p) => ({
     ...p,
-    z: p.z + dz,
-    id: `${p.id}-L${laneIndex}`
+    x: p.x + dx,
+    id: `${p.id}-H${laneIndex}`
   }))
 }
 

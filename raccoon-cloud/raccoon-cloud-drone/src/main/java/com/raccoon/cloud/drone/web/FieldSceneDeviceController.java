@@ -80,6 +80,16 @@ public class FieldSceneDeviceController {
     @PostMapping("/init-builtin-towers")
     public HxResult<Map<String, Object>> initBuiltin() {
         int n = fieldSceneDeviceService.initBuiltinPatrolTowers();
-        return HxResult.success(Map.of("initialized", n));
+        int backfill = fieldSceneDeviceService.backfillMissingCoordinates(null);
+        return HxResult.success(Map.of("initialized", n, "backfilled", backfill));
+    }
+
+    /** 按仿真场景几何补全缺失的 WGS84 / 场景坐标 */
+    @PostMapping("/backfill-coordinates")
+    public HxResult<Map<String, Object>> backfill(
+            @RequestParam(value = "mapId", required = false) Long mapId
+    ) {
+        int n = fieldSceneDeviceService.backfillMissingCoordinates(mapId);
+        return HxResult.success(Map.of("backfilled", n));
     }
 }

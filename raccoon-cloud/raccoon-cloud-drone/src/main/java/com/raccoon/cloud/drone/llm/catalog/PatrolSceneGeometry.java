@@ -61,6 +61,25 @@ public final class PatrolSceneGeometry {
         return TOWER_XS[i];
     }
 
+    /** 杆塔中心脚点（与仿真 tower_center 标签一致） */
+    public static GeoPoint towerCenterPoint(int towerIndex) {
+        int i = towerIndex - 1;
+        if (i < 0 || i >= TOWER_XS.length) {
+            throw new IllegalArgumentException("杆塔序号超出场景范围: " + towerIndex);
+        }
+        return sceneToGeo(TOWER_XS[i], 4, CORRIDOR_Z0);
+    }
+
+    /** 输电场景侧主变压器（与仿真侧设备摆放一致） */
+    public static GeoPoint patrolTransformerPoint() {
+        return sceneToGeo(-95, 4, 52);
+    }
+
+    /** 输电场景侧断路器 */
+    public static GeoPoint patrolBreakerPoint() {
+        return sceneToGeo(-68, 3, 58);
+    }
+
     public static GeoPoint towerPhotoPoint(int towerIndex) {
         int i = towerIndex - 1;
         if (i < 0 || i >= TOWER_XS.length) {

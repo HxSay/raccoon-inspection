@@ -213,6 +213,77 @@ export class SceneEditor3D {
     this.emitUi()
   }
 
+  /**
+   * 管理平台新增/更新设备 → 在编辑器中放置或移动对应物体（内置杆塔除外）。
+   */
+  upsertFromCloud(device: {
+    sceneObjectId?: string
+    deviceName: string
+    deviceType: string
+    sceneX?: number
+    sceneY?: number
+    sceneZ?: number
+    id?: number
+  }): boolean {
+    const objectId = device.sceneObjectId?.trim()
+    if (!objectId || !this.userRoot) return false
+    if (objectId.startsWith('builtin-tower-')) return false
+    if (device.sceneX == null || device.sceneY == null || device.sceneZ == null) return false
+
+    const world = this.opts.getWorld()
+    if (!world) return false
+
+    const kind = this.kindForDeviceType(device.deviceType)
+    let obj = this.findByEditorId(objectId)
+    if (!obj) {
+      const mesh = createEditorPrimitive(kind, this.defaultSpecForKind(kind))
+      const ud = mesh.userData as EditorEntityUserData
+      ud.editorId = objectId
+      ud.editorLabel = device.deviceName
+      mesh.name = device.deviceName
+      this.userRoot.add(mesh)
+      obj = mesh
+      const snap = this.serializeObject(mesh)
+      this.history.push({ type: 'add', id: snap.id, json: snap })
+    } else {
+      ;(obj.userData as EditorEntityUserData).editorLabel = device.deviceName
+      obj.name = device.deviceName
+    }
+
+    obj.position.set(device.sceneX, device.sceneY, device.sceneZ)
+    obj.updateMatrixWorld(true)
+    const ignore = this.collectIgnoreSet()
+    snapObjectBottomToTerrain(obj, world, this.raycaster, ignore)
+    this.emitUi()
+    return true
+  }
+
+  /** 管理平台删除设备 → 移除编辑器中同 sceneObjectId 的物体 */
+  removeByEditorId(editorId: string): void {
+    const o = this.findByEditorId(editorId)
+    if (!o || !this.userRoot) return
+    if (o.parent === this.userRoot || o.parent === this.importRoot) {
+      o.parent?.remove(o)
+      disposeObjectDeep(o)
+      this.selectedIds.delete(editorId)
+      this.emitUi()
+    }
+  }
+
+  private kindForDeviceType(deviceType: string): EditorPrimitiveKind {
+    const t = (deviceType ?? '').toUpperCase()
+    if (t.includes('TOWER')) return 'cylinder'
+    if (t.includes('TRANSFORMER') || t.includes('BREAKER') || t.includes('ISOLATOR')) return 'box'
+    if (t.includes('VALVE') || t.includes('STATION')) return 'box'
+    return 'box'
+  }
+
+  private defaultSpecForKind(kind: EditorPrimitiveKind): PrimitiveCreateOptions {
+    if (kind === 'cylinder') return { radius: 2.2, height: 18 }
+    if (kind === 'box') return { wx: 6, wy: 4, wz: 5 }
+    return { wx: 4, wy: 3, wz: 4 }
+  }
+
   /** 供现场设备云端同步：采集编辑器内用户添加的物体 */
   collectFieldDevicesForSync(): Array<{
     sceneObjectId: string

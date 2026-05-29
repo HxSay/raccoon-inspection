@@ -57,6 +57,13 @@ import SimControlPanel from '@/components/SimControlPanel.vue'
 import { fetchRobotsBySceneType, type InspectionRobotVO } from '@/api/inspectionRobot'
 import { syncFieldDevicesFromEditor } from '@/api/fieldSceneDevice'
 import {
+  applyCloudFieldDevicesToEditor,
+  applySingleCloudDevice,
+  FIELD_DEVICE_CHANNEL,
+  removeCloudDeviceFromEditor,
+  type FieldDeviceChannelMessage
+} from '@/sim/fieldDeviceSceneSync'
+import {
   reportRobotBattery1Hz,
   reportRobotLoad1Hz,
   reportRobotPosition10Hz
@@ -366,6 +373,34 @@ function applyEditorOrbitStyle(on: boolean): void {
   }
 }
 
+async function pullCloudFieldDevicesToScene() {
+  if (!sceneEditor3dRef.value) return
+  try {
+    const n = await applyCloudFieldDevicesToEditor(sceneEditor3dRef.value, sceneTab.value)
+    if (n > 0) {
+      fieldDeviceSyncHint.value = `已从管理平台加载 ${n} 个现场设备到场景`
+    }
+  } catch (e) {
+    console.warn('[field-device] pull', e)
+  }
+}
+
+function onFieldDeviceChannelMessage(ev: MessageEvent<FieldDeviceChannelMessage>) {
+  const data = ev.data
+  if (!data?.type || !sceneEditor3dRef.value) return
+  if (data.type === 'UPSERT' && data.device) {
+    if (applySingleCloudDevice(sceneEditor3dRef.value, data.device)) {
+      fieldDeviceSyncHint.value = `场景已添加/更新：${data.device.deviceName}`
+      scheduleFieldDeviceSync()
+    }
+  } else if (data.type === 'DELETE' && data.sceneObjectId) {
+    removeCloudDeviceFromEditor(sceneEditor3dRef.value, data.sceneObjectId)
+    fieldDeviceSyncHint.value = '已按管理平台删除移除场景物体'
+  } else if (data.type === 'RELOAD') {
+    void pullCloudFieldDevicesToScene()
+  }
+}
+
 function scheduleFieldDeviceSync() {
   if (!sceneEditEnabled.value) return
   if (fieldDeviceSyncTimer) clearTimeout(fieldDeviceSyncTimer)
@@ -388,6 +423,10 @@ watch(sceneEditEnabled, (on) => {
   if (on) rebindEditor3dWorld()
   applyEditorOrbitStyle(on)
 }, { immediate: true })
+
+watch(sceneTab, () => {
+  void pullCloudFieldDevicesToScene()
+})
 
 watch(viewMode, (mode, prev) => {
   applyViewMode(prev)
@@ -917,6 +956,7 @@ function initThree(): () => void {
   rebindEditor3dWorld()
   sceneEditor3dRef.value.setActive(sceneEditEnabled.value)
   applyEditorOrbitStyle(sceneEditEnabled.value)
+  void pullCloudFieldDevicesToScene()
 
   applyNetworkSim()
 
@@ -1120,12 +1160,22 @@ function handleParentMessage(ev: MessageEvent) {
   })
 }
 
+let fieldDeviceChannel: BroadcastChannel | null = null
+
 onMounted(() => {
   disposeThree = initThree()
   window.addEventListener('message', handleParentMessage)
+  try {
+    fieldDeviceChannel = new BroadcastChannel(FIELD_DEVICE_CHANNEL)
+    fieldDeviceChannel.onmessage = onFieldDeviceChannelMessage
+  } catch {
+    fieldDeviceChannel = null
+  }
 })
 
 onBeforeUnmount(() => {
+  fieldDeviceChannel?.close()
+  fieldDeviceChannel = null
   window.removeEventListener('message', handleParentMessage)
   disposeThree?.()
   disposeThree = null

@@ -4,6 +4,23 @@ import type { HxResult } from '@/types/droneDispatch'
 
 const DRONE_API_BASE = import.meta.env.VITE_DRONE_API_BASE ?? '/api/drone'
 
+export interface FieldSceneDeviceRecord {
+  id?: number
+  mapId?: number
+  deviceName: string
+  deviceType: string
+  longitude?: number
+  latitude?: number
+  height?: number
+  sceneX?: number
+  sceneY?: number
+  sceneZ?: number
+  sceneObjectId?: string
+  locationDesc?: string
+  status?: number
+  syncSource?: string
+}
+
 export interface FieldSceneDeviceSyncItem {
   sceneObjectId: string
   deviceName: string
@@ -54,4 +71,19 @@ export async function syncFieldDevicesFromEditor(
     throw new Error(body.msg || '同步失败')
   }
   return body.data?.upserted ?? devices.length
+}
+
+export async function fetchFieldDevicesByMap(
+  tab: 'patrol' | 'substation' | 'thermal'
+): Promise<FieldSceneDeviceRecord[]> {
+  const cfg = SCENE_MAP[tab]
+  const res = await fetch(`${DRONE_API_BASE}/field-scene-device/by-map/${cfg.mapId}`)
+  if (!res.ok) {
+    throw new Error(`加载现场设备失败 HTTP ${res.status}`)
+  }
+  const body = (await res.json()) as HxResult<FieldSceneDeviceRecord[]>
+  if (body.code !== 200) {
+    throw new Error(body.msg || '加载现场设备失败')
+  }
+  return body.data ?? []
 }
