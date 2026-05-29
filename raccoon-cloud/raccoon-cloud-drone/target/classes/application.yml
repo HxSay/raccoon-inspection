@@ -11,7 +11,8 @@ spring:
       base-url: http://127.0.0.1:11434
       chat:
         options:
-          model: llama3.2
+          # 须为本地 Ollama 已安装模型（ollama list）。qwen2:7b 中文解析效果好
+          model: qwen2:7b
           temperature: 0.1
   config:
     import: optional:nacos:localhost:8848
@@ -43,8 +44,9 @@ logging:
 raccoon:
   llm:
     task-parse:
-      timeout-ms: 5000
-      max-retries: 3
+      # 本地 7B 模型(qwen2:7b)单次推理约 15~20s，超时需放宽，否则会超时降级到规则解析
+      timeout-ms: 60000
+      max-retries: 2
       max-input-length: 500
       default-algorithm: RRT*
       default-plan-id: 5

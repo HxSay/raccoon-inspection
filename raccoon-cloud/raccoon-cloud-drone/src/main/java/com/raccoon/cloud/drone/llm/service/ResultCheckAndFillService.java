@@ -94,9 +94,6 @@ public class ResultCheckAndFillService {
         } else if (result.getResolvedMapId() != null) {
             List<UavInspectionDevice> devices = catalogService.findDevicesByMapAndNames(
                     result.getResolvedMapId(), slots.getDeviceNames());
-            // 输电场景：库中未录入的 1~5 号杆塔按内置几何补齐，避免有效杆塔被判为「不存在」
-            devices = fillMissingPatrolTowersByName(
-                    result.getResolvedMapId(), slots.getDeviceNames(), devices);
             if (devices.size() < slots.getDeviceNames().size()) {
                 missing.add("全部设备名称需在系统中存在，请确认设备名称");
             } else {
@@ -206,36 +203,6 @@ public class ResultCheckAndFillService {
         }
         list.sort(java.util.Comparator.comparingInt(d ->
                 patrolDeviceWaypointResolver.parseTowerIndex(d.getDeviceName()).orElse(99)));
-        return list;
-    }
-
-    /**
-     * 指定设备名巡检时（如「4号塔杆」），输电场景中库内尚未录入的 1~5 号杆塔按内置几何补齐，
-     * 避免有效杆塔被判为「设备不存在」而追问。
-     */
-    private List<UavInspectionDevice> fillMissingPatrolTowersByName(
-            Long mapId, List<String> requestedNames, List<UavInspectionDevice> found) {
-        if (!Long.valueOf(1L).equals(mapId) || requestedNames == null) {
-            return found;
-        }
-        List<UavInspectionDevice> list = new ArrayList<>(found);
-        java.util.Set<Integer> have = new java.util.HashSet<>();
-        for (UavInspectionDevice d : list) {
-            patrolDeviceWaypointResolver.parseTowerIndex(d.getDeviceName()).ifPresent(have::add);
-        }
-        for (String name : requestedNames) {
-            Optional<Integer> idxOpt = patrolDeviceWaypointResolver.parseTowerIndex(name);
-            if (idxOpt.isEmpty()) {
-                continue;
-            }
-            int t = idxOpt.get();
-            if (t < 1 || t > 5 || have.contains(t)) {
-                continue;
-            }
-            list.add(buildSyntheticPatrolTower(t));
-            have.add(t);
-            log.info("库中缺失杆塔{}，按内置几何补齐", t);
-        }
         return list;
     }
 
