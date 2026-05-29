@@ -172,6 +172,9 @@ export class MissionRunner {
     }
     try {
       this.startedAt = Date.now()
+      // 以无人机起飞瞬间的实际位置为起降点：拖动后从当前位置出发，不再回到初始机巢
+      const agentPos = (this.opts.agent as unknown as { root?: THREE.Object3D }).root?.position
+      if (agentPos) this.opts.home.copy(agentPos)
       this.distanceM = 0
       this.flown = []
       this.photos = []

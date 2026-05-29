@@ -144,18 +144,26 @@ public class GlobalPathPlanService {
         return PatrolSceneGeometry.nestTakeoff();
     }
 
-    /** 设备 → GeoPoint；输电杆塔无坐标时按场景几何解析 */
+    /** 设备 → GeoPoint */
     private GeoPoint devicePoint(UavInspectionDevice d) {
         if (d == null) {
             return null;
+        }
+        // 输电杆塔：优先使用场景几何抬升后的拍照点（横担高度 + 前移站位）。
+        // 库中杆塔的 height 仅为塔脚基座高度（约 4m），若直接用会导致无人机贴地飞行，
+        // 故对「杆塔N」一律按巡检拍照高度解析。
+        GeoPoint towerPhoto = patrolDeviceWaypointResolver.parseTowerIndex(d.getDeviceName())
+                .filter(idx -> idx >= 1 && idx <= 5)
+                .map(idx -> PatrolSceneGeometry.towerPhotoPoint(idx.intValue()))
+                .orElse(null);
+        if (towerPhoto != null) {
+            return towerPhoto;
         }
         if (d.getLongitude() != null && d.getLatitude() != null) {
             return new GeoPoint(d.getLongitude(), d.getLatitude(),
                     d.getHeight() == null ? 0.0 : d.getHeight());
         }
-        return patrolDeviceWaypointResolver.parseTowerIndex(d.getDeviceName())
-                .map(PatrolSceneGeometry::towerPhotoPoint)
-                .orElse(null);
+        return null;
     }
 
     /**

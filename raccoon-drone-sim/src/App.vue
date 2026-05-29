@@ -22,8 +22,7 @@ import { uploadMultimodalMissionResult } from '@/sim/edgeCloudMultimodal'
 import type { MultimodalModalityType } from '@/sim/multimodalTypes'
 import {
   dispatchToCloudPath,
-  dispatchToDjiWaypointMission,
-  partitionDispatchForFleet
+  dispatchToDjiWaypointMission
 } from '@/sim/dispatchConverter'
 import type { CloudPathPoint } from '@/sim/types'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
@@ -272,8 +271,37 @@ let patrolRobotLabels: RobotLabelHandle[] = []
 let patrolRobotConfigs: InspectionRobotVO[] = []
 /** 与 patrolDrones 下标对应的云端机器人 ID */
 let patrolFleetUavIds: number[] = []
-/** 编队每架机独立云端路径（与 cloudPatrolPath 二选一使用） */
-let fleetCloudPaths: import('@/sim/types').CloudPathPoint[][] = []
+/** 每架巡逻机的归位点（机巢 / 被拖动后的位置），下标与 patrolDrones 对应 */
+let patrolHomes: THREE.Vector3[] = []
+/** Agent 派单后的执行方案：仅就近选中的无人机参与，从各自当前位置起飞执行 */
+let fleetPlan: {
+  drone: M300DroneModel
+  home: THREE.Vector3
+  path: import('@/sim/types').CloudPathPoint[]
+}[] = []
+const PATROL_HOME_STORAGE_KEY = 'raccoon-sim-patrol-drone-homes'
+
+function loadSavedPatrolHomes(): Array<{ x: number; y: number; z: number }> {
+  try {
+    const raw = localStorage.getItem(PATROL_HOME_STORAGE_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+}
+
+function savePatrolHomes(): void {
+  try {
+    localStorage.setItem(
+      PATROL_HOME_STORAGE_KEY,
+      JSON.stringify(patrolHomes.map((h) => ({ x: h.x, y: h.y, z: h.z })))
+    )
+  } catch {
+    /* 忽略本地存储异常 */
+  }
+}
 let nest: DroneNest | null = null
 let terminal: EdgeTerminal3D | null = null
 /** 杆塔被移动后导线重建的合帧标志（每帧最多重建一次） */
@@ -666,7 +694,17 @@ function rebuildMissionRunner() {
   }
   if (!stateReports.length) return
   if (sceneTab.value === 'patrol' && sceneBundle && patrolDrones.length) {
-    const n = Math.min(patrolDrones.length, sceneBundle.corridorHomes.length)
+    // 有 Agent 派单方案时仅出动被选中的机；否则（手动仿真）默认全部机从各自归位点起飞
+    const maxLanes = Math.min(patrolDrones.length, sceneBundle.corridorHomes.length, stateReports.length)
+    const entries: { drone: M300DroneModel; home: THREE.Vector3; path: CloudPathPoint[] }[] =
+      fleetPlan.length > 0
+        ? fleetPlan.slice(0, stateReports.length).map((e) => ({ drone: e.drone, home: e.home.clone(), path: e.path }))
+        : patrolDrones.slice(0, maxLanes).map((d, i) => ({
+            drone: d,
+            home: (patrolHomes[i] ?? sceneBundle!.corridorHomes[i] ?? d.root.position).clone(),
+            path: []
+          }))
+    const n = entries.length
     const onPatrolFleetComplete = async (r: MissionReport) => {
       patrolFleetBuffer.value.push(r)
       if (patrolFleetBuffer.value.length >= n) {
@@ -678,12 +716,13 @@ function rebuildMissionRunner() {
       }
     }
     for (let i = 0; i < n; i++) {
+      const entry = entries[i]!
       missionRunners.push(
         new MissionRunner({
-          agent: patrolDrones[i]!,
+          agent: entry.drone,
           pathWorld: sceneBundle.world,
           stateReport: stateReports[i]!,
-          home: sceneBundle.corridorHomes[i]!.clone(),
+          home: entry.home.clone(),
           getDeployMode: () => deployMode.value,
           getBattery: getBatteryForCheck,
           setBattery: i === 0 ? (v) => { batteryPercent.value = Math.round(v * 10) / 10 } : () => {},
@@ -700,16 +739,15 @@ function rebuildMissionRunner() {
           onComplete: onPatrolFleetComplete,
           onError,
           fetchPlannedPath: async (dep) => {
-            const fleetPath = fleetCloudPaths[i]
-            if (fleetPath?.length) {
-              return fleetPath.map((p) => ({ ...p }))
+            if (entry.path.length) {
+              return entry.path.map((p) => ({ ...p }))
             }
             if (i === 0 && cloudPatrolPath.value?.length) {
               return cloudPatrolPath.value.map((p) => ({ ...p }))
             }
             return fetchCloudPlannedPath(dep, i)
           },
-          pathMode: cloudPatrolPath.value?.length ? 'linear' : 'catmullrom',
+          pathMode: entry.path.length || cloudPatrolPath.value?.length ? 'linear' : 'catmullrom',
           visualHooks: {
             onPreflightPassed: () => {
               if (i === 0) nest?.setDoorTarget(1)
@@ -724,7 +762,7 @@ function rebuildMissionRunner() {
           },
           captureInspectionPhoto: () => {
             const sc = sceneBundle?.scene
-            const agent = patrolDrones[i]
+            const agent = entry.drone
             if (!sc || !agent) return null
             const rig = agent.getInspectionViewRig?.()
             if (!rig) return null
@@ -821,6 +859,7 @@ async function setupPatrolFleet(scene: THREE.Scene, corridorHomes: THREE.Vector3
     d.dispose()
   })
   patrolDrones = []
+  fleetPlan = []
 
   try {
     patrolRobotConfigs = await fetchRobotsBySceneType('patrol')
@@ -830,6 +869,7 @@ async function setupPatrolFleet(scene: THREE.Scene, corridorHomes: THREE.Vector3
   const fleet = patrolRobotConfigs.filter((r) => r.robotType === 'UAV')
   const count = fleet.length > 0 ? fleet.length : Math.max(1, corridorHomes.length)
   patrolFleetUavIds = fleet.length > 0 ? fleet.map((r) => r.id) : [1]
+  const savedHomes = loadSavedPatrolHomes()
 
   for (let i = 0; i < count; i++) {
     const d = new M300DroneModel()
@@ -839,6 +879,11 @@ async function setupPatrolFleet(scene: THREE.Scene, corridorHomes: THREE.Vector3
     if (robot?.sceneX != null && robot.sceneY != null && robot.sceneZ != null) {
       pos = new THREE.Vector3(robot.sceneX, robot.sceneY, robot.sceneZ)
     }
+    // 优先恢复用户上次拖动保存的位置，保证巡检从当前位置出发
+    const saved = savedHomes[i]
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && Number.isFinite(saved.z)) {
+      pos = new THREE.Vector3(saved.x, saved.y, saved.z)
+    }
     d.setPose(pos, 0)
     scene.add(d.root)
     d.root.userData.noScenePick = true
@@ -847,6 +892,7 @@ async function setupPatrolFleet(scene: THREE.Scene, corridorHomes: THREE.Vector3
       patrolRobotLabels.push(attachRobotLabel(d.root, robot))
     }
   }
+  patrolHomes = patrolDrones.map((d) => d.root.position.clone())
   rebuildMissionRunner()
 }
 
@@ -926,8 +972,16 @@ function initThree(): () => void {
       editorUiState.value = s
     },
     onSceneEntityTransform: (obj) => {
+      if (sceneTab.value !== 'patrol') return
+      // 拖动无人机：记录其新位置为归位点，并持久化（巡检从此处出发、结束返回此处）
+      const di = patrolDrones.findIndex((d) => d.root === obj)
+      if (di >= 0) {
+        patrolHomes[di] = patrolDrones[di]!.root.position.clone()
+        savePatrolHomes()
+        return
+      }
       // 移动/旋转/缩放杆塔后，按其当前挂点重建导线（合帧，避免每次 change 都重建）
-      if (sceneTab.value !== 'patrol' || obj.userData?.patrolTower !== true) return
+      if (obj.userData?.patrolTower !== true) return
       if (wireRebuildScheduled) return
       wireRebuildScheduled = true
       requestAnimationFrame(() => {
@@ -1105,6 +1159,88 @@ async function waitForPatrolSceneReady(maxMs = 4000): Promise<void> {
   }
 }
 
+/** 以无人机当前位置为起降点，构造「当前位置 → 爬升 → 各拍照点 → 返回」航线 */
+function buildCloudPathFromHome(
+  home: THREE.Vector3,
+  photoPts: CloudPathPoint[]
+): CloudPathPoint[] {
+  const pts: CloudPathPoint[] = [{ id: 'wp-home', x: home.x, y: home.y, z: home.z, isPhoto: false }]
+  if (photoPts.length === 0) return pts
+  const cruiseY = Math.max(home.y + 5, ...photoPts.map((p) => p.y))
+  pts.push({ id: 'wp-climb', x: home.x, y: cruiseY, z: home.z, isPhoto: false })
+  photoPts.forEach((p, k) => pts.push({ ...p, id: `wp-photo-${k}`, isPhoto: true }))
+  pts.push({ id: 'wp-rth', x: home.x, y: cruiseY, z: home.z, isPhoto: false })
+  pts.push({ id: 'wp-land', x: home.x, y: home.y, z: home.z, isPhoto: false })
+  return pts
+}
+
+/**
+ * 根据任务实际工作量（设备数）就近调度无人机：
+ * - 单个塔杆/设备 → 仅派距离最近的 1 架；多设备 → 在最近的若干架之间分摊。
+ * 拍照点固定落在真实塔位（以机巢为锚点解算），每架机从“当前位置”出发并返回，避免回到初始位。
+ */
+function planFleetAssignments(dispatch: UavRouteDispatchPayload): typeof fleetPlan {
+  if (!sceneBundle || patrolDrones.length === 0) return []
+  // 锚点固定用原始机巢：经纬度→场景的换算基准，保证拍照点落在真实塔位（不随无人机被拖动而偏移）
+  const anchor0 = sceneBundle.corridorHomes[0]!
+  const worldPath = dispatchToCloudPath(dispatch, { x: anchor0.x, y: anchor0.y, z: anchor0.z })
+  const photoPts = worldPath.filter((p) => p.isPhoto)
+
+  // 工作量：按 deviceIds 去重得到设备数；缺失则退化为拍照点数
+  const deviceIds = new Set<number>()
+  for (const w of dispatch.photoWaypoints ?? []) {
+    for (const id of w.deviceIds ?? []) if (id != null) deviceIds.add(id)
+  }
+  const workload = deviceIds.size > 0 ? deviceIds.size : Math.max(1, photoPts.length)
+  const maxDrones = Math.min(patrolDrones.length, Math.max(1, stateReports.length))
+  const dronesToUse = Math.max(1, Math.min(maxDrones, workload))
+
+  // 任务参考点：拍照点质心（无拍照点用整条航线质心）
+  const refPts = photoPts.length ? photoPts : worldPath
+  const ref = new THREE.Vector3()
+  refPts.forEach((p) => ref.add(new THREE.Vector3(p.x, p.y, p.z)))
+  ref.multiplyScalar(1 / Math.max(1, refPts.length))
+
+  // 选距任务参考点最近的 dronesToUse 架
+  const selected = patrolDrones
+    .map((d, i) => ({ i, dist: d.root.position.distanceTo(ref) }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, dronesToUse)
+    .map((r) => r.i)
+
+  // 每个拍照点分给最近的被选中机（保持原规划顺序）
+  const buckets = new Map<number, CloudPathPoint[]>()
+  selected.forEach((i) => buckets.set(i, []))
+  for (const p of photoPts) {
+    const pv = new THREE.Vector3(p.x, p.y, p.z)
+    let best = selected[0]!
+    let bestD = Infinity
+    for (const i of selected) {
+      const d = patrolDrones[i]!.root.position.distanceTo(pv)
+      if (d < bestD) {
+        bestD = d
+        best = i
+      }
+    }
+    buckets.get(best)!.push(p)
+  }
+
+  const plan: typeof fleetPlan = []
+  for (const i of selected) {
+    const photos = buckets.get(i) ?? []
+    if (photoPts.length > 0 && photos.length === 0) continue // 没分到拍照点的机不起飞
+    const home = patrolDrones[i]!.root.position.clone()
+    plan.push({ drone: patrolDrones[i]!, home, path: buildCloudPathFromHome(home, photos) })
+  }
+  if (plan.length === 0) {
+    // 兜底：最近一架飞全部拍照点
+    const i = selected[0] ?? 0
+    const home = patrolDrones[i]!.root.position.clone()
+    plan.push({ drone: patrolDrones[i]!, home, path: buildCloudPathFromHome(home, photoPts) })
+  }
+  return plan
+}
+
 async function applyDispatchFromParent(
   dispatch: UavRouteDispatchPayload,
   options?: { autoStart?: boolean; userInput?: string }
@@ -1127,36 +1263,29 @@ async function applyDispatchFromParent(
   routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
   const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
   missionJson.value = JSON.stringify(dji, null, 2)
-  const homes = sceneBundle.corridorHomes
-  const anchors = homes.map((h) => ({ x: h.x, y: h.y, z: h.z }))
-  const fleetN = Math.min(patrolDrones.length, anchors.length)
-  if (fleetN > 1 && (dispatch.photoWaypoints?.length ?? 0) > 0) {
-    fleetCloudPaths = partitionDispatchForFleet(dispatch, fleetN, anchors)
-    cloudPatrolPath.value = fleetCloudPaths[0] ?? []
-    taskStatus.value = `Agent 编队 ${fleetN} 架无人机，各负责 ${Math.ceil((dispatch.photoWaypoints?.length ?? 0) / fleetN)} 处拍照点`
-  } else {
-    fleetCloudPaths = []
-    const home = homes[0]
-    cloudPatrolPath.value = dispatchToCloudPath(
-      dispatch,
-      home ? { x: home.x, y: home.y, z: home.z } : undefined
-    )
-  }
+  // 就近调度：按任务工作量决定出动几架、出动哪几架（单设备仅派最近 1 架）
+  fleetPlan = planFleetAssignments(dispatch)
+  cloudPatrolPath.value = fleetPlan[0]?.path ?? []
+  const usedN = fleetPlan.length
+  taskStatus.value =
+    usedN > 1
+      ? `Agent 就近编队 ${usedN} 架无人机协同巡检`
+      : 'Agent 已派最近的 1 架无人机执行巡检'
   rebuildMissionRunner()
   const n = dji.waypoints.length
   const hint = options?.userInput ? `（${options.userInput.slice(0, 40)}…）` : ''
-  taskStatus.value = `Agent 已加载 ${n} 个航点${hint}`
-  const totalWp = fleetCloudPaths.length
-    ? fleetCloudPaths.reduce((s, p) => s + p.length, 0)
+  taskStatus.value = `${taskStatus.value}｜共 ${n} 个航点${hint}`
+  const totalWp = fleetPlan.length
+    ? fleetPlan.reduce((s, e) => s + e.path.length, 0)
     : n
   notifyParent({
     type: MSG_INSPECTION_DISPATCH_ACK,
     waypointCount: totalWp,
     uavId: dispatch.uavId,
     planId: dispatch.planId,
-    fleetCount: fleetCloudPaths.length || 1
+    fleetCount: fleetPlan.length || 1
   })
-  ElMessage.success(`已接收 Agent 巡检指令，${n} 个航点`)
+  ElMessage.success(`已接收 Agent 巡检指令，出动 ${fleetPlan.length || 1} 架 / ${n} 个航点`)
   if (options?.autoStart !== false) {
     await startMission()
   }
@@ -1220,9 +1349,8 @@ function resetMission() {
   patrolNestLanded = 0
   nest?.setDoorTarget(0)
   if (sceneTab.value === 'patrol' && sceneBundle && patrolDrones.length) {
-    const homes = sceneBundle.corridorHomes
     patrolDrones.forEach((d, i) => {
-      const h = homes[i]
+      const h = patrolHomes[i] ?? sceneBundle!.corridorHomes[i]
       if (h) {
         d.setPose(h.clone(), 0)
         d.setGimbal(0, 0)
