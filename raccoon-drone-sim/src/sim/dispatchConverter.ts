@@ -128,6 +128,59 @@ function photoDeviceIdsAtPathIndex(
 /**
  * 转为仿真场景航点：第一个航点落在 sceneAnchor（机巢），其余按经纬度相对偏移展开。
  */
+/**
+ * 将巡检任务按机队数量拆分：每架无人机负责一部分杆塔拍照点，各自从机位起飞执行。
+ */
+export function partitionDispatchForFleet(
+  dispatch: UavRouteDispatchPayload,
+  fleetSize: number,
+  sceneAnchors: SceneAnchor[]
+): CloudPathPoint[][] {
+  const n = Math.max(1, Math.min(fleetSize, sceneAnchors.length))
+  const photos = [...(dispatch.photoWaypoints ?? [])]
+  if (photos.length === 0) {
+    return sceneAnchors.slice(0, n).map((anchor) => dispatchToCloudPath(dispatch, anchor))
+  }
+
+  const chunks: (typeof photos)[] = Array.from({ length: n }, () => [])
+  photos.forEach((p, i) => {
+    chunks[i % n]!.push(p)
+  })
+
+  const flightPath = resolveDispatchFlightPath(dispatch)
+  const takeoff = dispatch.takeoff ?? flightPath[0]
+  const landing = dispatch.landing ?? flightPath[flightPath.length - 1]
+
+  return chunks.map((chunk, di) => {
+    const sub: UavRouteDispatchPayload = {
+      ...dispatch,
+      uavId: dispatch.uavId + di,
+      photoWaypoints: chunk,
+      waypoints: buildFleetWaypoints(takeoff, landing, chunk, flightPath)
+    }
+    return dispatchToCloudPath(sub, sceneAnchors[di])
+  })
+}
+
+/** 子任务航点：起飞 → 爬升(若有) → 本机负责的拍照点 → 降落 */
+function buildFleetWaypoints(
+  takeoff: GeoPoint,
+  landing: GeoPoint,
+  photos: PhotoWaypoint[],
+  fullPath: GeoPoint[]
+): GeoPoint[] {
+  const transit =
+    fullPath.length > 1 && !isSameGeo(fullPath[0], fullPath[1]) ? fullPath[1] : takeoff
+  const list: GeoPoint[] = [takeoff, transit]
+  for (const p of photos) {
+    list.push(cloneGeo(p))
+  }
+  if (!isSameGeo(list[list.length - 1], landing)) {
+    list.push(landing)
+  }
+  return list
+}
+
 export function dispatchToCloudPath(
   dispatch: UavRouteDispatchPayload,
   sceneAnchor?: SceneAnchor

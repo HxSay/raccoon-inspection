@@ -92,6 +92,12 @@ public class DispatchInspectionTask {
     /** 备注（来自用户原始描述） */
     private String remark;
 
+    /** 用户自然语言原文（调度请求 userInput） */
+    private String userInput;
+
+    /** 是否「区域内全部设备/杆塔」巡检意图 */
+    private Boolean inspectAllDevices;
+
     /** 分配结果：被分到的终端 ID（未分配为 null） */
     private Long assignedTerminalId;
 

@@ -20,7 +20,11 @@ import type { UavRouteDispatchPayload } from '@/types/droneDispatch'
 import { EdgeCloudTelemetryReporter } from '@/sim/edgeCloudTelemetry'
 import { uploadMultimodalMissionResult } from '@/sim/edgeCloudMultimodal'
 import type { MultimodalModalityType } from '@/sim/multimodalTypes'
-import { dispatchToCloudPath, dispatchToDjiWaypointMission } from '@/sim/dispatchConverter'
+import {
+  dispatchToCloudPath,
+  dispatchToDjiWaypointMission,
+  partitionDispatchForFleet
+} from '@/sim/dispatchConverter'
 import type { CloudPathPoint } from '@/sim/types'
 import { TELEMETRY_INTERVAL_MS, DJI_MAX_WAYPOINTS } from '@/sim/constants'
 import { PATROL_AERIAL_CAMERA, PATROL_CORRIDOR_Z0, PATROL_SCENE_LOOK } from '@/sim/scenePatrolLayout'
@@ -260,6 +264,8 @@ let patrolRobotLabels: RobotLabelHandle[] = []
 let patrolRobotConfigs: InspectionRobotVO[] = []
 /** 与 patrolDrones 下标对应的云端机器人 ID */
 let patrolFleetUavIds: number[] = []
+/** 编队每架机独立云端路径（与 cloudPatrolPath 二选一使用） */
+let fleetCloudPaths: import('@/sim/types').CloudPathPoint[][] = []
 let nest: DroneNest | null = null
 let terminal: EdgeTerminal3D | null = null
 /** 每架巡逻机独立遥测通道（避免一机结束 stop 掉共享 10Hz 定时器） */
@@ -649,7 +655,11 @@ function rebuildMissionRunner() {
           onComplete: onPatrolFleetComplete,
           onError,
           fetchPlannedPath: async (dep) => {
-            if (cloudPatrolPath.value?.length) {
+            const fleetPath = fleetCloudPaths[i]
+            if (fleetPath?.length) {
+              return fleetPath.map((p) => ({ ...p }))
+            }
+            if (i === 0 && cloudPatrolPath.value?.length) {
               return cloudPatrolPath.value.map((p) => ({ ...p }))
             }
             return fetchCloudPlannedPath(dep, i)
@@ -1061,20 +1071,34 @@ async function applyDispatchFromParent(
   routeFetchRawJson.value = JSON.stringify(dispatch, null, 2)
   const dji = dispatchToDjiWaypointMission(dispatch, 'M300_RTK')
   missionJson.value = JSON.stringify(dji, null, 2)
-  const home = sceneBundle.corridorHomes[0]
-  cloudPatrolPath.value = dispatchToCloudPath(
-    dispatch,
-    home ? { x: home.x, y: home.y, z: home.z } : undefined
-  )
+  const homes = sceneBundle.corridorHomes
+  const anchors = homes.map((h) => ({ x: h.x, y: h.y, z: h.z }))
+  const fleetN = Math.min(patrolDrones.length, anchors.length)
+  if (fleetN > 1 && (dispatch.photoWaypoints?.length ?? 0) > 0) {
+    fleetCloudPaths = partitionDispatchForFleet(dispatch, fleetN, anchors)
+    cloudPatrolPath.value = fleetCloudPaths[0] ?? []
+    taskStatus.value = `Agent 编队 ${fleetN} 架无人机，各负责 ${Math.ceil((dispatch.photoWaypoints?.length ?? 0) / fleetN)} 处拍照点`
+  } else {
+    fleetCloudPaths = []
+    const home = homes[0]
+    cloudPatrolPath.value = dispatchToCloudPath(
+      dispatch,
+      home ? { x: home.x, y: home.y, z: home.z } : undefined
+    )
+  }
   rebuildMissionRunner()
   const n = dji.waypoints.length
   const hint = options?.userInput ? `（${options.userInput.slice(0, 40)}…）` : ''
   taskStatus.value = `Agent 已加载 ${n} 个航点${hint}`
+  const totalWp = fleetCloudPaths.length
+    ? fleetCloudPaths.reduce((s, p) => s + p.length, 0)
+    : n
   notifyParent({
     type: MSG_INSPECTION_DISPATCH_ACK,
-    waypointCount: n,
+    waypointCount: totalWp,
     uavId: dispatch.uavId,
-    planId: dispatch.planId
+    planId: dispatch.planId,
+    fleetCount: fleetCloudPaths.length || 1
   })
   ElMessage.success(`已接收 Agent 巡检指令，${n} 个航点`)
   if (options?.autoStart !== false) {

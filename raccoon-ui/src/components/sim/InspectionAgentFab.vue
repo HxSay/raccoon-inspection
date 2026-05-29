@@ -4,6 +4,18 @@ import { ElMessage } from 'element-plus'
 import { dispatchTaskGenerate } from '@/api/droneDispatch'
 import { nlpTaskParse, type NlpTaskParseResponse } from '@/api/droneNlp'
 import type { UavRouteDispatchPayload } from '@/api/drone'
+
+function countPhotoWaypoints(d: UavRouteDispatchPayload | null | undefined): number {
+  return d?.photoWaypoints?.length ?? 0
+}
+
+/** 口语「所有/全部杆塔」：应覆盖仿真场景 5 基杆塔 */
+function isInspectAllTowersIntent(text: string): boolean {
+  const t = text.replace(/\s+/g, '')
+  return /(?:所有|全部|全体)(?:的)?(?:杆塔|塔杆|塔)/.test(t)
+    || t.includes('所有杆塔') || t.includes('全部杆塔')
+    || t.includes('巡检所有') || t.includes('巡检全部')
+}
 import ChatBubble from '@/components/rag/ChatBubble.vue'
 import {
   formatTaskSummary,
@@ -202,15 +214,35 @@ const sendMessage = async () => {
       return
     }
 
-    if (!dispatchPayload && data?.task) {
-      dispatchPayload = inspectionTaskToDispatch(data.task)
-      const summary = formatTaskSummary(data.task, data.slots)
+    const nlpDispatch = data?.task ? inspectionTaskToDispatch(data.task) : null
+
+    const allTowers = isInspectAllTowersIntent(text)
+    const hubPhotos = countPhotoWaypoints(dispatchPayload)
+    const nlpPhotos = countPhotoWaypoints(nlpDispatch)
+    const preferNlp =
+      nlpDispatch &&
+      (!dispatchPayload ||
+        nlpPhotos > hubPhotos ||
+        (allTowers && nlpPhotos >= 5 && hubPhotos < 5))
+
+    if (preferNlp && nlpDispatch) {
+      if (dispatchPayload && nlpPhotos > hubPhotos) {
+        summaryLines.push(`（调度路径较短，已改用 NLP 全量杆塔航线，${nlpPhotos} 个拍照点）`)
+      } else if (allTowers && hubPhotos < 5) {
+        summaryLines.push(`（全量杆塔巡检，已采用 ${nlpPhotos} 个拍照点航线）`)
+      }
+      dispatchPayload = nlpDispatch
+    } else if (!dispatchPayload && nlpDispatch) {
+      dispatchPayload = nlpDispatch
+      const summary = formatTaskSummary(data.task!, data.slots)
       parseSource = data.parseSource === 'RULE' ? '规则解析' : 'LLM 解析'
       summaryLines = [`已理解巡检意图（${parseSource}）：`, summary]
     }
 
+    const photoN = countPhotoWaypoints(dispatchPayload)
     assistantMsg.content =
       (summaryLines.length ? summaryLines.join('\n') : '任务已生成') +
+      `\n共 ${photoN} 个拍照点，将按编队分派至各无人机。` +
       '\n\n正在向仿真无人机下发航线…'
 
     if (!props.simIframe) {

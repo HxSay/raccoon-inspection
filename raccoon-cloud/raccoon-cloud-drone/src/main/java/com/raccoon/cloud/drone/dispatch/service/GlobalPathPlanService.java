@@ -11,6 +11,8 @@ import com.raccoon.cloud.drone.dispatch.model.TerminalState;
 import com.raccoon.cloud.drone.dto.GeoPoint;
 import com.raccoon.cloud.drone.dto.PhotoWaypoint;
 import com.raccoon.cloud.drone.entity.UavInspectionDevice;
+import com.raccoon.cloud.drone.llm.catalog.PatrolDeviceWaypointResolver;
+import com.raccoon.cloud.drone.llm.catalog.PatrolSceneGeometry;
 import com.raccoon.cloud.drone.util.GeoPathUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +41,7 @@ public class GlobalPathPlanService {
     private final TspOrderOptimizer tspOptimizer;
     private final RrtStarPlanner rrtPlanner;
     private final TrajectorySmoothing smoothing;
+    private final PatrolDeviceWaypointResolver patrolDeviceWaypointResolver;
 
     /**
      * 为单个已分配任务规划路径。
@@ -59,40 +62,45 @@ public class GlobalPathPlanService {
         GeoPoint origin = resolveOrigin(task, terminal);
         List<UavInspectionDevice> ordered = tspOptimizer.optimize(origin, task.getResolvedDevices());
 
-        // 起点 + 每个设备点 + 回到起点
-        List<GeoPoint> waypoints = new ArrayList<>();
-        waypoints.add(origin);
         List<GeoPoint> deviceGeos = new ArrayList<>();
         for (UavInspectionDevice d : ordered) {
             GeoPoint p = devicePoint(d);
-            if (p == null) {
-                continue;
+            if (p != null) {
+                deviceGeos.add(p);
             }
-            deviceGeos.add(p);
         }
 
-        // 段内 RRT* 规划
+        List<GeoPoint> smoothed;
+        List<PhotoWaypoint> photos;
         int rrtSamples = 0;
-        GeoPoint prev = origin;
-        for (GeoPoint cur : deviceGeos) {
-            List<GeoPoint> segment = rrtPlanner.plan(prev, cur, null);
-            rrtSamples += segment.size();
-            // 跳过首点避免重复
-            for (int i = 1; i < segment.size(); i++) {
-                waypoints.add(segment.get(i));
+        String algorithm;
+
+        // 输电场景：与 NLP/仿真一致的机巢-爬升-逐塔-返航折线，避免 RRT 仅 2 点导致航程过短
+        if (task.getMapId() != null && patrolDeviceWaypointResolver.supportsPatrolMap(task.getMapId())) {
+            PatrolRouteBuild patrol = buildPatrolCorridorRoute(ordered, deviceGeos);
+            smoothed = patrol.waypoints();
+            photos = patrol.photoWaypoints();
+            algorithm = "PATROL_CORRIDOR+TSP";
+        } else {
+            List<GeoPoint> waypoints = new ArrayList<>();
+            waypoints.add(origin);
+            GeoPoint prev = origin;
+            for (GeoPoint cur : deviceGeos) {
+                List<GeoPoint> segment = rrtPlanner.plan(prev, cur, null);
+                rrtSamples += segment.size();
+                for (int i = 1; i < segment.size(); i++) {
+                    waypoints.add(segment.get(i));
+                }
+                prev = cur;
             }
-            prev = cur;
+            List<GeoPoint> homeward = rrtPlanner.plan(prev, origin, null);
+            for (int i = 1; i < homeward.size(); i++) {
+                waypoints.add(homeward.get(i));
+            }
+            smoothed = smoothing.smooth(waypoints);
+            photos = buildPhotoWaypoints(smoothed, ordered, deviceGeos);
+            algorithm = "RRT*+TSP+SMOOTH";
         }
-        // 返航
-        List<GeoPoint> homeward = rrtPlanner.plan(prev, origin, null);
-        for (int i = 1; i < homeward.size(); i++) {
-            waypoints.add(homeward.get(i));
-        }
-
-        // 轨迹平滑
-        List<GeoPoint> smoothed = smoothing.smooth(waypoints);
-
-        List<PhotoWaypoint> photos = buildPhotoWaypoints(smoothed, ordered, deviceGeos);
 
         GlobalPathPlan plan = new GlobalPathPlan();
         plan.setTakeoff(origin);
@@ -105,7 +113,7 @@ public class GlobalPathPlanService {
         plan.setDurationSec((int) Math.ceil(distanceM / DispatchConstants.CRUISE_SPEED_MPS));
         plan.setBatteryPct((float) Math.min(100.0,
                 (distanceM / 1000.0) * DispatchConstants.BATTERY_PCT_PER_KM));
-        plan.setAlgorithm("RRT*+TSP+SMOOTH");
+        plan.setAlgorithm(algorithm);
         plan.setSampleCount(rrtSamples);
         plan.setElapsedMs(System.currentTimeMillis() - start);
 
@@ -123,23 +131,31 @@ public class GlobalPathPlanService {
      * 确定起飞点优先级：终端实时位置 > 任务首点 > 兜底零点。
      */
     private GeoPoint resolveOrigin(DispatchInspectionTask task, TerminalState terminal) {
+        if (task.getMapId() != null && patrolDeviceWaypointResolver.supportsPatrolMap(task.getMapId())) {
+            return PatrolSceneGeometry.nestTakeoff();
+        }
         if (terminal != null && terminal.getPosition() != null) {
             return terminal.getPosition();
         }
         if (!task.getDeviceWaypoints().isEmpty()) {
             return task.getDeviceWaypoints().get(0);
         }
-        log.warn("[plan] taskId={} 终端 / 设备坐标均缺失，使用 0/0/0 兜底", task.getTaskId());
-        return new GeoPoint(0.0, 0.0, 0.0);
+        log.warn("[plan] taskId={} 终端 / 设备坐标均缺失，使用机巢兜底", task.getTaskId());
+        return PatrolSceneGeometry.nestTakeoff();
     }
 
-    /** 设备 → GeoPoint */
+    /** 设备 → GeoPoint；输电杆塔无坐标时按场景几何解析 */
     private GeoPoint devicePoint(UavInspectionDevice d) {
-        if (d == null || d.getLongitude() == null || d.getLatitude() == null) {
+        if (d == null) {
             return null;
         }
-        return new GeoPoint(d.getLongitude(), d.getLatitude(),
-                d.getHeight() == null ? 0.0 : d.getHeight());
+        if (d.getLongitude() != null && d.getLatitude() != null) {
+            return new GeoPoint(d.getLongitude(), d.getLatitude(),
+                    d.getHeight() == null ? 0.0 : d.getHeight());
+        }
+        return patrolDeviceWaypointResolver.parseTowerIndex(d.getDeviceName())
+                .map(PatrolSceneGeometry::towerPhotoPoint)
+                .orElse(null);
     }
 
     /**
@@ -163,6 +179,38 @@ public class GlobalPathPlanService {
             photos.add(photo);
         }
         return photos;
+    }
+
+    /**
+     * 输电走廊标准航线：机巢起飞 → 爬升 → 各杆塔拍照点 → 返航。
+     */
+    private PatrolRouteBuild buildPatrolCorridorRoute(List<UavInspectionDevice> ordered,
+                                                      List<GeoPoint> deviceGeos) {
+        GeoPoint takeoff = PatrolSceneGeometry.nestTakeoff();
+        GeoPoint transit = PatrolSceneGeometry.nestTransit();
+        GeoPoint landing = PatrolSceneGeometry.nestTakeoff();
+
+        List<GeoPoint> waypoints = new ArrayList<>();
+        waypoints.add(takeoff);
+        waypoints.add(transit);
+
+        List<PhotoWaypoint> photos = new ArrayList<>();
+        for (int i = 0; i < ordered.size() && i < deviceGeos.size(); i++) {
+            GeoPoint p = deviceGeos.get(i);
+            waypoints.add(p);
+            PhotoWaypoint photo = new PhotoWaypoint();
+            photo.setLongitude(p.getLongitude());
+            photo.setLatitude(p.getLatitude());
+            photo.setHeight(p.getHeight());
+            photo.setWaypointIndex(waypoints.size() - 2);
+            photo.setDeviceIds(List.of(ordered.get(i).getId()));
+            photos.add(photo);
+        }
+        waypoints.add(landing);
+        return new PatrolRouteBuild(waypoints, photos);
+    }
+
+    private record PatrolRouteBuild(List<GeoPoint> waypoints, List<PhotoWaypoint> photoWaypoints) {
     }
 
     /** 找到 waypoints 中距离 target 最近点的下标 */

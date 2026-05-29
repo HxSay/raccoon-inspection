@@ -62,7 +62,9 @@ public class InspectionSlotNormalizer {
         List<String> extracted = extractTowerDeviceNames(text);
         if ((slots.getDeviceNames() == null || slots.getDeviceNames().isEmpty()) && !extracted.isEmpty()) {
             slots.setDeviceNames(extracted);
-            slots.setInspectAllDevices(false);
+            if (!isInspectAllDevicesIntent(text)) {
+                slots.setInspectAllDevices(false);
+            }
         } else if (slots.getDeviceNames() != null && !slots.getDeviceNames().isEmpty()) {
             List<String> normalized = new ArrayList<>();
             for (String name : slots.getDeviceNames()) {

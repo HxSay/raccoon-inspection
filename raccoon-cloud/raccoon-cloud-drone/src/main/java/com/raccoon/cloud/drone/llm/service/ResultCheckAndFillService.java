@@ -3,6 +3,8 @@ package com.raccoon.cloud.drone.llm.service;
 import com.raccoon.cloud.drone.entity.UavInspectionDevice;
 import com.raccoon.cloud.drone.entity.UavMap;
 import com.raccoon.cloud.drone.llm.catalog.InspectionCatalogService;
+import com.raccoon.cloud.drone.llm.catalog.PatrolDeviceWaypointResolver;
+import com.raccoon.cloud.drone.llm.catalog.PatrolSceneGeometry;
 import com.raccoon.cloud.drone.llm.enums.PriorityEnum;
 import com.raccoon.cloud.drone.llm.enums.TaskTypeEnum;
 import com.raccoon.cloud.drone.llm.model.LlmTaskSlotResult;
@@ -30,6 +32,9 @@ public class ResultCheckAndFillService {
 
     @Autowired
     private InspectionSlotNormalizer slotNormalizer;
+
+    @Autowired
+    private PatrolDeviceWaypointResolver patrolDeviceWaypointResolver;
 
     @Data
     public static class CheckResult {
@@ -92,6 +97,8 @@ public class ResultCheckAndFillService {
             if (devices.size() < slots.getDeviceNames().size()) {
                 missing.add("全部设备名称需在系统中存在，请确认设备名称");
             } else {
+                devices = expandPatrolTowersIfNeeded(
+                        result.getResolvedMapId(), devices, userInput, slots.getInspectAllDevices());
                 result.setResolvedDevices(devices);
                 List<String> canonical = new ArrayList<>();
                 for (UavInspectionDevice d : devices) {
@@ -138,6 +145,9 @@ public class ResultCheckAndFillService {
         if (picked.isEmpty()) {
             picked = all;
         }
+        if (towerOnly && Long.valueOf(1L).equals(result.getResolvedMapId())) {
+            picked = ensureAllPatrolTowers(picked);
+        }
         result.setResolvedDevices(picked);
         List<String> names = new ArrayList<>();
         for (UavInspectionDevice d : picked) {
@@ -146,5 +156,64 @@ public class ResultCheckAndFillService {
         slots.setDeviceNames(names);
         log.info("已自动展开全量巡检设备 mapId={} count={} names={}",
                 result.getResolvedMapId(), names.size(), names);
+    }
+
+    /**
+     * 输电 mapId=1 且用户表达「所有/全部杆塔」时，将已解析设备扩展为仿真场景 1~5 基杆塔。
+     * 供 NLP 槽位补全与调度中枢 {@link com.raccoon.cloud.drone.dispatch.service.TaskParseService} 共用。
+     */
+    public List<UavInspectionDevice> expandPatrolTowersIfNeeded(
+            Long mapId,
+            List<UavInspectionDevice> devices,
+            String userInput,
+            Boolean inspectAllDevices) {
+        if (!Long.valueOf(1L).equals(mapId) || devices == null || devices.isEmpty()) {
+            return devices;
+        }
+        boolean allIntent = Boolean.TRUE.equals(inspectAllDevices)
+                || (userInput != null && slotNormalizer.isInspectAllDevicesIntent(userInput));
+        if (!allIntent) {
+            return devices;
+        }
+        boolean towerOnly = userInput != null
+                && (userInput.contains("杆塔") || userInput.contains("塔杆"))
+                && !userInput.contains("设备");
+        if (!towerOnly) {
+            return devices;
+        }
+        return ensureAllPatrolTowers(devices);
+    }
+
+    /**
+     * 输电场景「所有杆塔」：补齐仿真场景 1~5 号杆塔（库中可能仅录入部分）。
+     */
+    private List<UavInspectionDevice> ensureAllPatrolTowers(List<UavInspectionDevice> devices) {
+        List<UavInspectionDevice> list = new ArrayList<>(devices);
+        java.util.Set<Integer> have = new java.util.HashSet<>();
+        for (UavInspectionDevice d : list) {
+            patrolDeviceWaypointResolver.parseTowerIndex(d.getDeviceName()).ifPresent(have::add);
+        }
+        for (int t = 1; t <= 5; t++) {
+            if (have.contains(t)) {
+                continue;
+            }
+            UavInspectionDevice syn = new UavInspectionDevice();
+            syn.setId(9000L + t);
+            syn.setMapId(1L);
+            syn.setDeviceName("杆塔" + t);
+            syn.setDeviceType("TOWER");
+            syn.setStatus(1);
+            com.raccoon.cloud.drone.dto.GeoPoint p = PatrolSceneGeometry.towerPhotoPoint(t);
+            syn.setLongitude(p.getLongitude());
+            syn.setLatitude(p.getLatitude());
+            syn.setHeight(p.getHeight());
+            syn.setSceneX(PatrolSceneGeometry.towerSceneX(t));
+            list.add(syn);
+            have.add(t);
+            log.info("补齐内置杆塔设备: 杆塔{}", t);
+        }
+        list.sort(java.util.Comparator.comparingInt(d ->
+                patrolDeviceWaypointResolver.parseTowerIndex(d.getDeviceName()).orElse(99)));
+        return list;
     }
 }

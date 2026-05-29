@@ -37,8 +37,8 @@ export const ERR_RTK_NOT_FIXED = '未切换到RTK定位，无法执行高精度�
 /** 大疆 M300 系列航点任务上限（长距离巡检分航段时需关注） */
 export const DJI_MAX_WAYPOINTS = 65535
 
-/** 输电场景并排走廊数量（杆塔列 + 独立航线 lane 索引 0…N-1；1 为单排走廊） */
-export const PATROL_LANE_COUNT = 1
+/** 输电场景并排走廊数量（机巢位 + 编队 lane；≥2 时多机各走一条走廊） */
+export const PATROL_LANE_COUNT = 2
 
 /** 相邻走廊中心线 Z 间距（米），须与 `scene.ts` 杆塔列间隔一致 */
 export const PATROL_LANE_Z_SPACING_M = 40

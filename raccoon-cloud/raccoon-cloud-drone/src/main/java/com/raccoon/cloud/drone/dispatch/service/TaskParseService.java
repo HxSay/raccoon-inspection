@@ -14,6 +14,7 @@ import com.raccoon.cloud.drone.llm.dto.NlpTaskParseResponse;
 import com.raccoon.cloud.drone.llm.model.InspectionTask;
 import com.raccoon.cloud.drone.llm.model.LlmTaskSlotResult;
 import com.raccoon.cloud.drone.llm.service.NlpTaskParseFacadeService;
+import com.raccoon.cloud.drone.llm.service.ResultCheckAndFillService;
 import com.raccoon.cloud.drone.mapper.UavInspectionDeviceMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +56,9 @@ public class TaskParseService {
     @Autowired
     private UavInspectionDeviceMapper deviceMapper;
 
+    @Autowired
+    private ResultCheckAndFillService resultCheckAndFillService;
+
     /**
      * 解析请求为标准化任务模型。
      *
@@ -80,6 +84,7 @@ public class TaskParseService {
 
         if (StringUtils.hasText(request.getUserInput())) {
             mergeNlpParse(request, task);
+            task.setUserInput(request.getUserInput().trim());
         } else {
             mergeStructured(request, task);
             task.setParseSource("MANUAL");
@@ -98,7 +103,9 @@ public class TaskParseService {
 
     /** 调用 NLP 服务并将解析结果合并入任务（保留原 NLP 服务的全部行为）。 */
     private void mergeNlpParse(DispatchTaskRequest request, DispatchInspectionTask task) {
-        NlpTaskParseResponse response = nlpTaskParseFacadeService.parse(request.getUserInput().trim());
+        String raw = request.getUserInput().trim();
+        task.setUserInput(raw);
+        NlpTaskParseResponse response = nlpTaskParseFacadeService.parse(raw);
         task.setParseSource(response.getParseSource() != null ? response.getParseSource() : "LLM");
         if (response.isNeedFollowUp()) {
             log.warn("[task-parse] NLP 仍需追问: {}", response.getFollowUpQuestion());
@@ -107,6 +114,7 @@ public class TaskParseService {
         }
         LlmTaskSlotResult slots = response.getSlots();
         if (slots != null) {
+            task.setInspectAllDevices(slots.getInspectAllDevices());
             task.setAreaName(slots.getAreaName());
             task.setDeviceNames(slots.getDeviceNames() != null ? slots.getDeviceNames() : new ArrayList<>());
             task.setTaskType(DispatchTaskTypeEnum.parse(slots.getTaskType()));
@@ -190,7 +198,10 @@ public class TaskParseService {
         if (!CollectionUtils.isEmpty(task.getDeviceNames())) {
             List<UavInspectionDevice> rows = catalogService.findDevicesByMapAndNames(
                     task.getMapId(), task.getDeviceNames());
+            rows = resultCheckAndFillService.expandPatrolTowersIfNeeded(
+                    task.getMapId(), rows, task.getUserInput(), task.getInspectAllDevices());
             task.setResolvedDevices(rows);
+            task.setDeviceNames(rows.stream().map(UavInspectionDevice::getDeviceName).toList());
             task.setDeviceIds(rows.stream().map(UavInspectionDevice::getId).toList());
         } else {
             List<UavInspectionDevice> all = catalogService.listDevicesByMap(task.getMapId());

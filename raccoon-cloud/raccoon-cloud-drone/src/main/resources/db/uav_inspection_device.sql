@@ -15,6 +15,8 @@ INSERT INTO `uav_inspection_device` (`id`, `map_id`, `device_name`, `device_type
   (1, 1, '杆塔1', 'tower'),
   (2, 1, '杆塔2', 'tower'),
   (3, 1, '杆塔3', 'tower'),
+  (11, 1, '杆塔4', 'tower'),
+  (12, 1, '杆塔5', 'tower'),
   (4, 1, '主变压器', 'transformer'),
   (5, 1, '断路器', 'breaker'),
   (6, 2, '主变压器', 'transformer'),
