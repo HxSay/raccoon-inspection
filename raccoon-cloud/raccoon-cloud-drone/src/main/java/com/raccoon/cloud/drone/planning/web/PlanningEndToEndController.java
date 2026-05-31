@@ -1,0 +1,48 @@
+package com.raccoon.cloud.drone.planning.web;
+
+import com.raccoon.cloud.drone.planning.service.PlanningEndToEndService;
+import com.raccoon.common.dto.planning.PlanningEndToEndRequest;
+import com.raccoon.common.dto.planning.PlanningEndToEndResponse;
+import com.raccoon.common.result.HxResult;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+/**
+ * 任务规划 Agent 端到端 REST。
+ */
+@RestController
+@RequiredArgsConstructor
+public class PlanningEndToEndController {
+
+    private final PlanningEndToEndService planningEndToEndService;
+
+    @PostMapping("/planning/end-to-end")
+    public HxResult<PlanningEndToEndResponse> endToEnd(@RequestBody PlanningEndToEndRequest request) {
+        return HxResult.success(planningEndToEndService.run(request));
+    }
+
+    @PostMapping("/planning/audit/approve-dispatch")
+    public HxResult<Map<String, Object>> approveDispatch(@RequestBody Map<String, String> body) {
+        boolean ok = planningEndToEndService.approveDispatch(
+                body.get("dispatchTaskId"), body.get("planningPayloadJson"));
+        return ok ? HxResult.success(Map.of("dispatched", true))
+                : HxResult.fail("正式下发失败，请检查终端状态或规划载荷");
+    }
+
+    @PostMapping("/planning/audit/replan")
+    public HxResult<Map<String, Object>> replan(@RequestBody Map<String, Object> body) {
+        Long workOrderId = body.get("workOrderId") instanceof Number n ? n.longValue()
+                : Long.parseLong(String.valueOf(body.get("workOrderId")));
+        boolean ok = planningEndToEndService.replanRejected(
+                workOrderId,
+                String.valueOf(body.get("dispatchTaskId")),
+                String.valueOf(body.get("planningPayloadJson")));
+        return ok ? HxResult.success(Map.of("replanned", true))
+                : HxResult.fail("驳回重规划失败");
+    }
+}

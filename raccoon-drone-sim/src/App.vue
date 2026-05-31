@@ -89,6 +89,8 @@ const simulateRtkLost = ref(false)
 
 const batteryPercent = ref(96)
 const taskStatus = ref('待命')
+/** 巡检任务是否在飞（返航/拍照中也算）；结束后应停止 10Hz 遥测轮询 */
+const inspectionInFlight = ref(false)
 const missionJson = ref('')
 const routeFetchUavId = ref<number | undefined>(1)
 const routeFetchPlanId = ref<number | undefined>(5)
@@ -556,7 +558,7 @@ function runtimeFaultOpts() {
 function onTelemetry(t: TelemetryPayload) {
   telemetry.value = t
   offlineBufferHint.value = stateReports.reduce((a, s) => a + s.getBufferedCount(), 0)
-  if (sceneTab.value !== 'patrol') return
+  if (sceneTab.value !== 'patrol' || !inspectionInFlight.value) return
   const uavId = patrolFleetUavIds[0] ?? routeFetchUavId.value ?? 1
   const online = !simulateDisconnect.value
   reportRobotPosition10Hz(uavId, t, online, runtimeFaultOpts())
@@ -564,8 +566,9 @@ function onTelemetry(t: TelemetryPayload) {
   reportRobotBattery1Hz(uavId, t.batteryPercent, enduranceMin)
 }
 
-/** 编队中非任务机的待机位姿上报（任务机由 onTelemetry 覆盖） */
+/** 编队中非任务机的待机位姿上报（任务机由 onTelemetry 覆盖）；仅巡检进行中 */
 function reportPatrolFleetStandby() {
+  if (!inspectionInFlight.value) return
   if (sceneTab.value !== 'patrol' || patrolDrones.length < 2) return
   const online = !simulateDisconnect.value
   const fault = runtimeFaultOpts()
@@ -632,6 +635,7 @@ async function finalizeMissionReport(r: MissionReport): Promise<MissionReport> {
 }
 
 async function onComplete(r: MissionReport) {
+  inspectionInFlight.value = false
   lastReport.value = await finalizeMissionReport(r)
   reportOpen.value = true
   missionJson.value = missionRunners[0]?.getDjiMissionPreview() ?? missionJson.value
@@ -649,6 +653,7 @@ async function onComplete(r: MissionReport) {
 }
 
 function onError(e: Error) {
+  inspectionInFlight.value = false
   ElMessage.error(e.message)
   taskStatus.value = '异常终止'
   nest?.setDoorTarget(0)
@@ -708,11 +713,23 @@ function rebuildMissionRunner() {
     const onPatrolFleetComplete = async (r: MissionReport) => {
       patrolFleetBuffer.value.push(r)
       if (patrolFleetBuffer.value.length >= n) {
+        inspectionInFlight.value = false
         const merged = mergePatrolReports(patrolFleetBuffer.value)
         patrolFleetBuffer.value = []
         lastReport.value = await finalizeMissionReport(merged)
         reportOpen.value = true
         missionJson.value = missionRunners.map((mr) => mr.getDjiMissionPreview()).join('\n---\n')
+        notifyParent({
+          type: MSG_INSPECTION_MISSION_COMPLETE,
+          summary: {
+            durationSec: merged.durationSec,
+            distanceM: merged.distanceM,
+            photoCount: merged.photos.length,
+            telemetrySent: merged.telemetrySent,
+            multimodalUploaded: !!lastReport.value?.multimodalUpload && !lastReport.value.multimodalUpload.error,
+            multimodalError: lastReport.value?.multimodalUpload?.error
+          }
+        })
       }
     }
     for (let i = 0; i < n; i++) {
@@ -1048,7 +1065,7 @@ function initThree(): () => void {
     const dt = clock.getDelta()
     nest?.tick(dt)
     edgeMetrics.value = edgeSim.tick(dt)
-    if (sceneTab.value === 'patrol' && patrolFleetUavIds.length) {
+    if (sceneTab.value === 'patrol' && patrolFleetUavIds.length && inspectionInFlight.value) {
       reportPatrolFleetStandby()
       patrolFleetUavIds.forEach((uavId, i) => {
         const mem = edgeMetrics.value.storagePercent
@@ -1351,11 +1368,13 @@ async function startMission() {
   }
   applyNetworkSim()
   cloudReceiveCount.value = 0
+  inspectionInFlight.value = true
   await Promise.all(missionRunners.map((m) => m.start()))
   missionJson.value = missionRunners.map((m) => m.getDjiMissionPreview()).join('\n---\n')
 }
 
 function resetMission() {
+  inspectionInFlight.value = false
   missionRunners.forEach((m) => m.reset())
   batteryPercent.value = 96
   telemetry.value = null

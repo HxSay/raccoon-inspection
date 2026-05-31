@@ -33,7 +33,7 @@ public class InspectionWorkOrder {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime actualEndTime;
     /**
-     * 1待下发 2待执行 3执行中 4已完成 5已取消
+     * 1待下发 2待执行 3执行中 4已完成 5已取消 6待审核 7审核驳回
      */
     private Integer status;
     private Long createBy;
@@ -44,6 +44,16 @@ public class InspectionWorkOrder {
     /** 关联巡检任务 */
     private Long taskId;
     private String remark;
+    private String dispatchTaskId;
+    private String rejectReason;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private LocalDateTime auditDeadline;
+    private String priorityCode;
+    private Long terminalId;
+    private String terminalName;
+    private String assignReason;
+    private String pathPlanJson;
+    private String planningPayloadJson;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime createTime;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")

@@ -38,7 +38,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 /**
@@ -695,16 +694,26 @@ public class InspectionWorkOrderService {
     }
 
     private String genOrderNo() {
-        String day = LocalDateTime.now().format(DateTimeFormatter.BASIC_ISO_DATE);
-        String prefix = "XJ-DW" + day;
-        for (int k = 0; k < 20; k++) {
-            String cand = prefix + String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
-            Long cnt = orderMapper.selectCount(new QueryWrapper<InspectionWorkOrder>().eq("order_no", cand));
-            if (cnt == null || cnt == 0) {
-                return cand;
+        String day = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String prefix = "XJ-" + day + "-";
+        InspectionWorkOrder last = orderMapper.selectOne(
+                new QueryWrapper<InspectionWorkOrder>()
+                        .likeRight("order_no", prefix)
+                        .orderByDesc("order_no")
+                        .last("LIMIT 1"));
+        int next = 1;
+        if (last != null && last.getOrderNo() != null && last.getOrderNo().startsWith(prefix)) {
+            String tail = last.getOrderNo().substring(prefix.length());
+            try {
+                next = Integer.parseInt(tail) + 1;
+            } catch (NumberFormatException ignored) {
+                next = 1;
             }
         }
-        throw new IllegalStateException("生成工单号失败，请重试");
+        if (next > 9999) {
+            throw new IllegalStateException("当日工单流水号已用尽");
+        }
+        return prefix + String.format("%04d", next);
     }
 
     private Map<Long, GridDevice> loadDeviceMap(List<InspectionWorkOrderDetail> details) {

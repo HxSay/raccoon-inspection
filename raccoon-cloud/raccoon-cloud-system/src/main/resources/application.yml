@@ -32,5 +32,13 @@ jwt:
   expire: 7200
   refreshExpire: 86400
 
+raccoon:
+  planning:
+    audit-timeout-hours: 24
+    escalation-interval-minutes: 60
+  drone:
+    base-url: http://localhost:8091
+    timeout-ms: 30000
+
 
 

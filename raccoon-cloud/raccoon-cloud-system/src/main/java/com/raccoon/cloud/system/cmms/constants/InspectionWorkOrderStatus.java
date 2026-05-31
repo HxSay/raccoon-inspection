@@ -18,4 +18,8 @@ public final class InspectionWorkOrderStatus {
     public static final int FINISHED = 4;
     /** 已取消 */
     public static final int CANCELLED = 5;
+    /** 待移动端审核（任务规划 Agent 生成后） */
+    public static final int PENDING_AUDIT = 6;
+    /** 审核驳回，待重新规划 */
+    public static final int AUDIT_REJECTED = 7;
 }

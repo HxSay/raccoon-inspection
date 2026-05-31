@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { dispatchTaskGenerate } from '@/api/droneDispatch'
 import { nlpTaskParse, type NlpTaskParseResponse } from '@/api/droneNlp'
+import { planningEndToEnd } from '@/api/planningE2e'
 import type { UavRouteDispatchPayload } from '@/api/drone'
 
 function countPhotoWaypoints(d: UavRouteDispatchPayload | null | undefined): number {
@@ -47,6 +48,8 @@ const sending = ref(false)
 const messages = ref<ChatMessage[]>([])
 const chatBodyRef = ref<HTMLElement | null>(null)
 const missionRunning = ref(false)
+/** 生成 CMMS 工单并提交移动端审核（不下发仿真） */
+const submitAuditMode = ref(false)
 
 const genId = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
@@ -167,6 +170,36 @@ const sendMessage = async () => {
 
   sending.value = true
   try {
+    if (submitAuditMode.value) {
+      const e2eRes: any = await planningEndToEnd({
+        userInput: text,
+        enableSimulation: true
+      })
+      const e2e = e2eRes.data
+      if (e2e?.needFollowUp) {
+        assistantMsg.content = e2e.followUpQuestion ?? '请补充巡检区域与设备信息。'
+        return
+      }
+      if (!e2e?.success) {
+        assistantMsg.content = e2e?.message ?? '端到端规划失败'
+        assistantMsg.error = assistantMsg.content
+        return
+      }
+      assistantMsg.content = [
+        '已生成待审核巡检工单：',
+        `工单号 ${e2e.orderNo ?? '—'}`,
+        `调度任务 ${e2e.dispatchTaskId ?? '—'}`,
+        `分配终端 ${e2e.assignedTerminalName ?? e2e.assignedTerminalId ?? '—'}`,
+        e2e.assignReason ? `分配理由：${e2e.assignReason}` : '',
+        e2e.auditDeadline ? `审核截止：${e2e.auditDeadline}` : '',
+        '请管理员在「工单审核」页面通过或驳回。'
+      ]
+        .filter(Boolean)
+        .join('\n')
+      ElMessage.success('工单已提交审核')
+      return
+    }
+
     let dispatchPayload: UavRouteDispatchPayload | null = null
     let summaryLines: string[] = []
     let parseSource = ''
@@ -343,6 +376,9 @@ watch(panelOpen, (open) => {
         </div>
 
         <div class="agent-panel__footer">
+          <el-checkbox v-model="submitAuditMode" :disabled="sending || missionRunning" class="audit-mode">
+            生成工单并提交审核（正式下发需审核通过）
+          </el-checkbox>
           <el-input
             v-model="inputText"
             type="textarea"
@@ -512,6 +548,11 @@ watch(panelOpen, (open) => {
 .agent-panel__empty ul {
   margin: 0;
   padding-left: 18px;
+}
+
+.audit-mode {
+  margin-bottom: 8px;
+  width: 100%;
 }
 
 .agent-panel__footer {

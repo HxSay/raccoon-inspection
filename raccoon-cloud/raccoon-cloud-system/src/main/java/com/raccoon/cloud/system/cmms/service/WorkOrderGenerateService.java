@@ -1,0 +1,332 @@
+package com.raccoon.cloud.system.cmms.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.raccoon.cloud.system.cmms.constants.InspectionWorkOrderStatus;
+import com.raccoon.cloud.system.cmms.entity.DeviceInfo;
+import com.raccoon.cloud.system.cmms.entity.InspectionPlan;
+import com.raccoon.cloud.system.cmms.entity.InspectionPoint;
+import com.raccoon.cloud.system.cmms.entity.InspectionTask;
+import com.raccoon.cloud.system.cmms.entity.InspectionWorkOrder;
+import com.raccoon.cloud.system.cmms.entity.InspectionWorkOrderDetail;
+import com.raccoon.cloud.system.cmms.mapper.DeviceInfoMapper;
+import com.raccoon.cloud.system.cmms.mapper.InspectionPlanMapper;
+import com.raccoon.cloud.system.cmms.mapper.InspectionPointMapper;
+import com.raccoon.cloud.system.cmms.mapper.InspectionTaskMapper;
+import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderDetailMapper;
+import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderMapper;
+import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitRequest;
+import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * 任务规划 Agent 巡检工单自动生成：计划/任务/工单绑定，标准四步，检测项关联。
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class WorkOrderGenerateService {
+
+    private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    private final InspectionPlanMapper planMapper;
+    private final InspectionTaskMapper taskMapper;
+    private final InspectionWorkOrderMapper orderMapper;
+    private final InspectionWorkOrderDetailMapper detailMapper;
+    private final DeviceInfoMapper deviceInfoMapper;
+    private final InspectionPointMapper pointMapper;
+    private final InspectionWorkOrderService inspectionWorkOrderService;
+    private final ObjectMapper objectMapper;
+
+    @Value("${raccoon.planning.audit-timeout-hours:24}")
+    private int auditTimeoutHours;
+
+    @Transactional(rollbackFor = Exception.class)
+    public PlanningWorkOrderSubmitResponse submitFromPlanning(PlanningWorkOrderSubmitRequest req) {
+        validateSubmit(req);
+        List<DeviceInfo> devices = resolveDevices(req.getDeviceNames());
+        if (devices.isEmpty()) {
+            throw new IllegalArgumentException("未解析到有效巡检设备");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String area = StringUtils.hasText(req.getAreaName()) ? req.getAreaName().trim() : "Agent规划区域";
+
+        InspectionPlan plan = new InspectionPlan();
+        plan.setPlanName("Agent规划-" + area + "-" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmm")));
+        plan.setDeviceIds(toDeviceIdsJson(devices));
+        plan.setCycleType(0);
+        plan.setCycleValue(1);
+        plan.setExecUserId(req.getInspectorId() != null ? req.getInspectorId() : 1L);
+        plan.setStartTime(now);
+        plan.setEndTime(now.plusDays(7));
+        plan.setStatus(1);
+        planMapper.insert(plan);
+
+        DeviceInfo primary = devices.get(0);
+        InspectionTask task = new InspectionTask();
+        task.setTaskCode("AT-" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")));
+        task.setPlanId(plan.getId());
+        task.setDeviceId(primary.getId());
+        task.setTaskName(area + " 巡检");
+        task.setExecUserId(plan.getExecUserId());
+        task.setPlanExecuteTime(now.plusHours(1));
+        task.setStatus(0);
+        task.setRemark(trim(req.getRemark()));
+        taskMapper.insert(task);
+
+        InspectionWorkOrder order = new InspectionWorkOrder();
+        order.setOrderNo(genAgentOrderNo());
+        order.setArea(area);
+        order.setShiftType(1);
+        order.setInspectorId(req.getInspectorId());
+        order.setInspectorName(req.getInspectorName());
+        order.setPlanStartTime(now);
+        order.setPlanEndTime(now.plusDays(1));
+        order.setStatus(InspectionWorkOrderStatus.PENDING_AUDIT);
+        order.setCreateBy(1L);
+        order.setCreateByName("任务规划Agent");
+        order.setPlanId(plan.getId());
+        order.setTaskId(task.getId());
+        order.setDispatchTaskId(trim(req.getDispatchTaskId()));
+        order.setPriorityCode(normalizePriority(req.getPriorityCode()));
+        order.setTerminalId(req.getAssignedTerminalId());
+        order.setTerminalName(trim(req.getAssignedTerminalName()));
+        order.setAssignReason(trim(req.getAssignReason()));
+        order.setPathPlanJson(req.getPathPlanJson());
+        order.setRemark(buildOrderRemark(req));
+        order.setAuditDeadline(now.plusHours(auditTimeoutHours));
+        orderMapper.insert(order);
+
+        int stepNo = 1;
+        for (DeviceInfo dev : devices) {
+            inspectionWorkOrderService.ensureDeviceRow(dev.getId());
+            List<InspectionPoint> points = pointMapper.selectList(
+                    new QueryWrapper<InspectionPoint>()
+                            .eq("device_id", dev.getId())
+                            .orderByAsc("sort", "id"));
+            stepNo = appendStandardSteps(order.getId(), stepNo, area, dev, points);
+        }
+
+        task.setWorkOrderId(order.getId());
+        taskMapper.updateById(task);
+
+        PlanningWorkOrderSubmitResponse resp = new PlanningWorkOrderSubmitResponse();
+        resp.setPlanId(plan.getId());
+        resp.setTaskId(task.getId());
+        resp.setWorkOrderId(order.getId());
+        resp.setOrderNo(order.getOrderNo());
+        resp.setStatus(order.getStatus());
+        resp.setAuditDeadline(order.getAuditDeadline());
+        resp.setMessage("巡检工单已生成，待移动端审核");
+        log.info("[WorkOrderGenerate] orderNo={} dispatchTaskId={} devices={}",
+                order.getOrderNo(), order.getDispatchTaskId(), devices.size());
+        return resp;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public PlanningWorkOrderSubmitResponse resubmitAfterReplan(Long workOrderId, PlanningWorkOrderSubmitRequest req) {
+        InspectionWorkOrder order = orderMapper.selectById(workOrderId);
+        if (order == null) {
+            throw new IllegalArgumentException("工单不存在");
+        }
+        if (order.getStatus() != InspectionWorkOrderStatus.AUDIT_REJECTED) {
+            throw new IllegalArgumentException("仅审核驳回工单可重新提交");
+        }
+        detailMapper.delete(new QueryWrapper<InspectionWorkOrderDetail>().eq("order_id", workOrderId));
+
+        List<DeviceInfo> devices = resolveDevices(req.getDeviceNames());
+        if (devices.isEmpty()) {
+            throw new IllegalArgumentException("未解析到有效巡检设备");
+        }
+        String area = StringUtils.hasText(req.getAreaName()) ? req.getAreaName().trim() : order.getArea();
+        int stepNo = 1;
+        for (DeviceInfo dev : devices) {
+            inspectionWorkOrderService.ensureDeviceRow(dev.getId());
+            List<InspectionPoint> points = pointMapper.selectList(
+                    new QueryWrapper<InspectionPoint>()
+                            .eq("device_id", dev.getId())
+                            .orderByAsc("sort", "id"));
+            stepNo = appendStandardSteps(workOrderId, stepNo, area, dev, points);
+        }
+
+        order.setDispatchTaskId(trim(req.getDispatchTaskId()));
+        order.setPriorityCode(normalizePriority(req.getPriorityCode()));
+        order.setTerminalId(req.getAssignedTerminalId());
+        order.setTerminalName(trim(req.getAssignedTerminalName()));
+        order.setAssignReason(trim(req.getAssignReason()));
+        order.setPathPlanJson(req.getPathPlanJson());
+        order.setRejectReason(null);
+        order.setStatus(InspectionWorkOrderStatus.PENDING_AUDIT);
+        order.setAuditDeadline(LocalDateTime.now().plusHours(auditTimeoutHours));
+        order.setRemark(buildOrderRemark(req));
+        orderMapper.updateById(order);
+
+        PlanningWorkOrderSubmitResponse resp = new PlanningWorkOrderSubmitResponse();
+        resp.setPlanId(order.getPlanId());
+        resp.setTaskId(order.getTaskId());
+        resp.setWorkOrderId(order.getId());
+        resp.setOrderNo(order.getOrderNo());
+        resp.setStatus(order.getStatus());
+        resp.setAuditDeadline(order.getAuditDeadline());
+        resp.setMessage("驳回后已重新规划，待审核");
+        return resp;
+    }
+
+    public void storePlanningPayload(Long workOrderId, String payloadJson) {
+        if (workOrderId == null) {
+            return;
+        }
+        InspectionWorkOrder order = orderMapper.selectById(workOrderId);
+        if (order == null) {
+            return;
+        }
+        order.setPlanningPayloadJson(payloadJson);
+        orderMapper.updateById(order);
+    }
+
+    /**
+     * 工单编号：XJ-yyyyMMdd-xxxx（当日 4 位自增流水号）。
+     */
+    public String genAgentOrderNo() {
+        String day = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String prefix = "XJ-" + day + "-";
+        InspectionWorkOrder last = orderMapper.selectOne(
+                new QueryWrapper<InspectionWorkOrder>()
+                        .likeRight("order_no", prefix)
+                        .orderByDesc("order_no")
+                        .last("LIMIT 1"));
+        int next = 1;
+        if (last != null && last.getOrderNo() != null && last.getOrderNo().startsWith(prefix)) {
+            String tail = last.getOrderNo().substring(prefix.length());
+            try {
+                next = Integer.parseInt(tail) + 1;
+            } catch (NumberFormatException ignored) {
+                next = 1;
+            }
+        }
+        if (next > 9999) {
+            throw new IllegalStateException("当日工单流水号已用尽");
+        }
+        return prefix + String.format("%04d", next);
+    }
+
+    private int appendStandardSteps(Long orderId, int stepNo, String area, DeviceInfo dev,
+                                    List<InspectionPoint> points) {
+        String dname = dev.getDeviceName();
+        Long devId = dev.getId();
+        String loc = StringUtils.hasText(dev.getLocation()) ? dev.getLocation() : area;
+
+        stepNo = insertDetail(orderId, stepNo, "path", area, "按路径前往 " + dname, devId, dname, null, null, null, null);
+        stepNo = insertDetail(orderId, stepNo, "stop", loc, "停靠 " + dname + "，请扫码确认设备", null, dname, null, null, null, null);
+
+        if (points == null || points.isEmpty()) {
+            stepNo = insertDetail(orderId, stepNo, "collect", loc, "执行规范巡检并记录", devId, dname,
+                    "巡检确认", null, null, null);
+        } else {
+            for (InspectionPoint p : points) {
+                stepNo = insertDetail(orderId, stepNo, "collect", loc,
+                        "采集 " + (p.getPointName() != null ? p.getPointName() : "测点"),
+                        devId, dname, p.getPointName(), p.getMinThreshold(), p.getMaxThreshold(), p.getUnit());
+            }
+        }
+        stepNo = insertDetail(orderId, stepNo, "report", area, dname + " 本段巡检上报", devId, dname, null, null, null, null);
+        return stepNo;
+    }
+
+    private int insertDetail(Long orderId, int stepNo, String type, String target, String desc,
+                             Long deviceId, String deviceName, String checkItem,
+                             BigDecimal min, BigDecimal max, String unit) {
+        InspectionWorkOrderDetail d = new InspectionWorkOrderDetail();
+        d.setOrderId(orderId);
+        d.setStepOrder(stepNo);
+        d.setStepType(type);
+        d.setTarget(target);
+        d.setDescription(desc);
+        d.setDeviceId(deviceId);
+        d.setDeviceName(deviceName);
+        d.setCheckItem(checkItem);
+        d.setStandardMin(min);
+        d.setStandardMax(max);
+        d.setUnit(unit);
+        d.setIsException(0);
+        detailMapper.insert(d);
+        return stepNo + 1;
+    }
+
+    private List<DeviceInfo> resolveDevices(List<String> names) {
+        if (names == null || names.isEmpty()) {
+            return List.of();
+        }
+        List<DeviceInfo> out = new ArrayList<>();
+        for (String name : names) {
+            if (!StringUtils.hasText(name)) {
+                continue;
+            }
+            String n = name.trim();
+            DeviceInfo dev = deviceInfoMapper.selectOne(
+                    new QueryWrapper<DeviceInfo>().eq("device_name", n).last("LIMIT 1"));
+            if (dev == null) {
+                dev = deviceInfoMapper.selectOne(
+                        new QueryWrapper<DeviceInfo>().like("device_name", n).last("LIMIT 1"));
+            }
+            if (dev != null && out.stream().noneMatch(x -> x.getId().equals(dev.getId()))) {
+                out.add(dev);
+            }
+        }
+        return out;
+    }
+
+    private String toDeviceIdsJson(List<DeviceInfo> devices) {
+        try {
+            List<Long> ids = devices.stream().map(DeviceInfo::getId).collect(Collectors.toList());
+            return objectMapper.writeValueAsString(ids);
+        } catch (JsonProcessingException e) {
+            return "[]";
+        }
+    }
+
+    private void validateSubmit(PlanningWorkOrderSubmitRequest req) {
+        if (req == null) {
+            throw new IllegalArgumentException("提交体不能为空");
+        }
+        if (!StringUtils.hasText(req.getDispatchTaskId())) {
+            throw new IllegalArgumentException("缺少调度任务ID");
+        }
+    }
+
+    private String buildOrderRemark(PlanningWorkOrderSubmitRequest req) {
+        StringBuilder sb = new StringBuilder("任务规划Agent自动生成");
+        if (StringUtils.hasText(req.getUserInput())) {
+            sb.append("；输入：").append(req.getUserInput().trim());
+        }
+        if (StringUtils.hasText(req.getTaskTypeCode())) {
+            sb.append("；类型：").append(req.getTaskTypeCode());
+        }
+        return sb.toString();
+    }
+
+    private String normalizePriority(String code) {
+        if (!StringUtils.hasText(code)) {
+            return "NORMAL";
+        }
+        return code.trim().toUpperCase();
+    }
+
+    private String trim(String s) {
+        return StringUtils.hasText(s) ? s.trim() : null;
+    }
+}

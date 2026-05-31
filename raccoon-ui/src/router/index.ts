@@ -185,6 +185,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '巡检结果', hidden: true }
       },
       {
+        path: '/cmms/work-order-audit',
+        name: 'WorkOrderAudit',
+        component: () => import('@/views/cmms/WorkOrderAuditView.vue'),
+        meta: { title: '工单审核', icon: 'Checked' }
+      },
+      {
         path: '/cmms/grid-inspection-wo',
         redirect: '/cmms/inspection?tab=order'
       },

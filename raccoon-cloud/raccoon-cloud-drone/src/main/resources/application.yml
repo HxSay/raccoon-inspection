@@ -42,6 +42,9 @@ logging:
     com.raccoon.cloud.drone: debug
 
 raccoon:
+  system:
+    base-url: http://localhost:8087
+    timeout-ms: 15000
   knowledge:
     # 中央 Agent 任务规划的混合 RAG 知识增强（调用 raccoon-cloud-agent 的 Milvus/Neo4j）
     enabled: true
