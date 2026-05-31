@@ -48,10 +48,11 @@ $PortMap = [ordered]@{
     drone     = 8091
     'iot-data' = 8092
     ui        = 3000
+    mobile    = 5174
     'drone-sim' = 3010
 }
 
-$CoreNames = @('system', 'agent', 'drone', 'iot-data', 'ui')
+$CoreNames = @('system', 'agent', 'drone', 'iot-data', 'ui', 'mobile')
 
 function Write-Title([string]$msg) {
     Write-Host ''
@@ -123,18 +124,20 @@ function Stop-RaccoonJavaProcesses {
 
 function Stop-RaccoonNodeProcesses {
     $uiPath = [regex]::Escape((Join-Path $Root 'raccoon-ui'))
+    $mobilePath = [regex]::Escape((Join-Path $Root 'raccoon-mobile'))
     $simPath = [regex]::Escape((Join-Path $Root 'raccoon-drone-sim'))
     $procs = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -and (
                 ($_.CommandLine -match $uiPath) -or
+                ($_.CommandLine -match $mobilePath) -or
                 ($_.CommandLine -match $simPath) -or
                 ($_.CommandLine -match 'vite')
             )
         }
 
     if (-not $procs) {
-        Write-Host '[--] no raccoon-ui / drone-sim node process' -ForegroundColor DarkGray
+        Write-Host '[--] no raccoon-ui / mobile / drone-sim node process' -ForegroundColor DarkGray
         return 0
     }
 

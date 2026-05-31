@@ -19,6 +19,7 @@ const offline = useOfflineQueueStore()
       <van-grid-item icon="todo-list-o" text="巡检任务" @click="router.push('/task')" />
       <van-grid-item icon="cluster-o" text="设备台账" @click="router.push('/device')" />
       <van-grid-item icon="setting-o" text="维修工单" @click="router.push('/wo')" />
+      <van-grid-item icon="passed" text="工单审核" @click="router.push('/audit')" />
       <van-grid-item icon="warning-o" text="离线队列" :badge="offline.pending.length || undefined" @click="router.push('/profile')" />
     </van-grid>
     <van-cell-group inset title="流程指引" class="steps-card">

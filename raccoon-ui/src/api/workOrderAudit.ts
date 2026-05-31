@@ -7,14 +7,14 @@ export const listPendingAuditOrders = (params?: {
   size?: number
 }) =>
   request({
-    url: '/system/cmms/workOrderAudit/pending',
+    url: '/cmms/workOrderAudit/pending',
     method: 'get',
     params
   })
 
 export const getAuditOrderDetail = (workOrderId: number) =>
   request({
-    url: '/system/cmms/workOrderAudit/detail',
+    url: '/cmms/workOrderAudit/detail',
     method: 'get',
     params: { workOrderId }
   })
@@ -25,7 +25,7 @@ export const approveWorkOrder = (data: {
   auditorName?: string
 }) =>
   request({
-    url: '/system/cmms/workOrderAudit/approve',
+    url: '/cmms/workOrderAudit/approve',
     method: 'post',
     data
   })
@@ -37,7 +37,7 @@ export const rejectWorkOrder = (data: {
   auditorName?: string
 }) =>
   request({
-    url: '/system/cmms/workOrderAudit/reject',
+    url: '/cmms/workOrderAudit/reject',
     method: 'post',
     data
   })

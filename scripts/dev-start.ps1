@@ -13,6 +13,9 @@
 .PARAMETER NoFrontend
   Skip raccoon-ui.
 
+.PARAMETER NoMobile
+  Skip raccoon-mobile (port 5174).
+
 .PARAMETER NoDroneSim
   Skip raccoon-drone-sim (port 3010). Main UI embed still needs it for /sim/drone.
 
@@ -29,6 +32,7 @@ param(
     [string]$Profile = 'All',
     [switch]$Compile,
     [switch]$NoFrontend,
+    [switch]$NoMobile,
     [switch]$NoDroneSim,
     [switch]$ShowWindows,
     [int]$StaggerSeconds = 4
@@ -296,6 +300,34 @@ function Start-DroneSim {
     }
 }
 
+function Start-Mobile {
+    param(
+        [string]$Npm,
+        [string]$RootPath,
+        [bool]$VisibleWindow
+    )
+    $mobileDir = Join-Path $RootPath 'raccoon-mobile'
+    if (-not (Test-Path (Join-Path $mobileDir 'package.json'))) {
+        Write-WarnMsg '[skip] raccoon-mobile not found'
+        return
+    }
+    if (-not (Clear-PortListener -Port 5174 -Label 'mobile')) { return }
+    Stop-StaleServiceLauncher -Name 'mobile'
+    $launcher = Join-Path (Get-RunDir) 'start-mobile.ps1'
+    $npmCmd = "& '$((Escape-SingleQuoted $Npm))' run dev"
+    Write-LauncherScript -Path $launcher -Lines @(
+        ('Set-Location -LiteralPath ''{0}''' -f (Escape-SingleQuoted $mobileDir))
+        "Write-Output '>>> Starting raccoon-mobile http://localhost:5174 ...'"
+        $npmCmd
+    )
+    $info = Start-LauncherProcess -LauncherPath $launcher -Name 'mobile' -VisibleWindow $VisibleWindow
+    if ($info) {
+        Write-Ok "[start] raccoon-mobile -> http://localhost:5174  (PID $($info.Pid), log: $($info.OutLog))"
+    } else {
+        Write-Ok '[start] raccoon-mobile -> http://localhost:5174  (window)'
+    }
+}
+
 function Start-Frontend {
     param(
         [string]$Npm,
@@ -355,7 +387,7 @@ $visible = [bool]$ShowWindows
 Write-Host ''
 Write-Host '========================================' -ForegroundColor DarkCyan
 Write-Host '  Raccoon dev environment' -ForegroundColor DarkCyan
-Write-Host "  Profile=$Profile  Compile=$Compile  Frontend=$(-not $NoFrontend)  DroneSim=$(-not $NoDroneSim)  Windows=$visible" -ForegroundColor DarkCyan
+Write-Host "  Profile=$Profile  Compile=$Compile  Frontend=$(-not $NoFrontend)  Mobile=$(-not $NoMobile)  DroneSim=$(-not $NoDroneSim)  Windows=$visible" -ForegroundColor DarkCyan
 Write-Host '========================================' -ForegroundColor DarkCyan
 Write-Host ''
 Write-WarnMsg 'Prerequisites (not started by this script):'
@@ -383,7 +415,7 @@ foreach ($svc in $Services) {
     if ($StaggerSeconds -gt 0) { Start-Sleep -Seconds $StaggerSeconds }
 }
 
-if (-not $NoFrontend -or -not $NoDroneSim) {
+if (-not $NoFrontend -or -not $NoMobile -or -not $NoDroneSim) {
     Start-Sleep -Seconds 2
     $npm = Resolve-Npm
     if (-not $NoDroneSim) {
@@ -392,6 +424,9 @@ if (-not $NoFrontend -or -not $NoDroneSim) {
     }
     if (-not $NoFrontend) {
         Start-Frontend -Npm $npm -RootPath $Root -VisibleWindow $visible
+    }
+    if (-not $NoMobile) {
+        Start-Mobile -Npm $npm -RootPath $Root -VisibleWindow $visible
     }
 }
 
@@ -406,7 +441,11 @@ if ($visible) {
     Write-Host "  Get-Content $(Join-Path (Get-LogDir) 'ui.log') -Wait -Tail 40" -ForegroundColor DarkGray
 }
 Write-Host ''
-Write-Host '  UI: http://localhost:3000' -ForegroundColor White
+Write-Host '  UI (PC):     http://localhost:3000' -ForegroundColor White
+Write-Host '  工单审核(PC): http://localhost:3000/cmms/work-order-audit' -ForegroundColor White
+if (-not $NoMobile) {
+    Write-Host '  Mobile:      http://localhost:5174  (工单审核: /audit)' -ForegroundColor White
+}
 if (-not $NoDroneSim) {
     Write-Host '  Drone sim (standalone): http://localhost:3010' -ForegroundColor White
     Write-Host '  Drone sim (embedded):    http://localhost:3000/sim/drone' -ForegroundColor White

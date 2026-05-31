@@ -18,6 +18,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'task/:id/report', name: 'TaskReport', component: () => import('@/views/task/report.vue'), meta: { title: '异常上报' } },
       { path: 'wo', name: 'Wo', component: () => import('@/views/wo/list.vue'), meta: { title: '维修工单' } },
       { path: 'wo/:id', name: 'WoDetail', component: () => import('@/views/wo/detail.vue'), meta: { title: '工单详情' } },
+      { path: 'audit', name: 'Audit', component: () => import('@/views/audit/list.vue'), meta: { title: '工单审核' } },
+      { path: 'audit/:id', name: 'AuditDetail', component: () => import('@/views/audit/detail.vue'), meta: { title: '审核详情' } },
       { path: 'profile', name: 'Profile', component: () => import('@/views/profile/index.vue'), meta: { title: '个人中心' } }
     ]
   }
