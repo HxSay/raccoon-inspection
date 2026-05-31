@@ -1,2 +1,8 @@
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\feign\device\DeviceFeignClient.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\result\HxResult.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\dto\planning\PlanningEndToEndResponse.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\dto\planning\WorkOrderAuditActionRequest.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\dto\planning\PlanningWorkOrderSubmitRequest.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\dto\planning\PlanningEndToEndRequest.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\dto\planning\WorkOrderAuditDetailDTO.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-common\src\main\java\com\raccoon\common\dto\planning\PlanningWorkOrderSubmitResponse.java
