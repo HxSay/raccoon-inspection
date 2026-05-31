@@ -36,5 +36,6 @@ export const planningEndToEnd = (data: PlanningEndToEndRequest) =>
   request({
     url: '/drone/planning/end-to-end',
     method: 'post',
-    data
+    data,
+    timeout: 120000
   })

@@ -1,5 +1,6 @@
 package com.raccoon.cloud.drone.service.impl;
 
+import com.raccoon.cloud.drone.dispatch.cache.TerminalStateCacheStore;
 import com.raccoon.cloud.drone.dto.InspectionRobotRuntimeVO;
 import com.raccoon.cloud.drone.dto.InspectionRobotTelemetryReport;
 import com.raccoon.cloud.drone.entity.UavRobotRuntimeStatus;
@@ -23,6 +24,7 @@ public class InspectionRobotRuntimeServiceImpl implements InspectionRobotRuntime
     private static final int ONLINE_STALE_SEC = 15;
 
     private final UavRobotRuntimeStatusMapper runtimeMapper;
+    private final TerminalStateCacheStore terminalStateCacheStore;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -96,6 +98,7 @@ public class InspectionRobotRuntimeServiceImpl implements InspectionRobotRuntime
         } else {
             runtimeMapper.updateById(row);
         }
+        terminalStateCacheStore.evict(row.getUavId());
     }
 
     @Override

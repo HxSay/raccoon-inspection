@@ -8,6 +8,7 @@ import com.raccoon.cloud.drone.dispatch.model.GlobalPathPlan;
 import com.raccoon.cloud.drone.dispatch.service.TaskGenerateService;
 import com.raccoon.cloud.drone.llm.dto.NlpTaskParseResponse;
 import com.raccoon.cloud.drone.llm.model.LlmTaskSlotResult;
+import com.raccoon.cloud.drone.llm.config.LlmTaskParseProperties;
 import com.raccoon.cloud.drone.llm.service.NlpTaskParseFacadeService;
 import com.raccoon.cloud.drone.planning.integration.SystemCmmsClient;
 import com.raccoon.common.dto.planning.PlanningEndToEndRequest;
@@ -32,9 +33,26 @@ public class PlanningEndToEndService {
     private final TaskGenerateService taskGenerateService;
     private final SystemCmmsClient systemCmmsClient;
     private final ObjectMapper objectMapper;
+    private final LlmTaskParseProperties llmTaskParseProperties;
 
     public PlanningEndToEndResponse run(PlanningEndToEndRequest req) {
         PlanningEndToEndResponse out = new PlanningEndToEndResponse();
+        try {
+            return doRun(req, out);
+        } catch (IllegalArgumentException e) {
+            log.warn("[PlanningE2E] 参数/解析错误: {}", e.getMessage());
+            out.setSuccess(false);
+            out.setMessage(e.getMessage());
+            return out;
+        } catch (Exception e) {
+            log.error("[PlanningE2E] 端到端失败", e);
+            out.setSuccess(false);
+            out.setMessage(e.getMessage() != null ? e.getMessage() : "端到端规划失败");
+            return out;
+        }
+    }
+
+    private PlanningEndToEndResponse doRun(PlanningEndToEndRequest req, PlanningEndToEndResponse out) {
         if (req == null) {
             out.setSuccess(false);
             out.setMessage("请求不能为空");
@@ -54,6 +72,14 @@ public class PlanningEndToEndService {
             if (nlp.getSlots() != null) {
                 mergeSlots(dispatchReq, nlp.getSlots());
             }
+            if (nlp.getTask() != null && nlp.getTask().getMapId() != null) {
+                dispatchReq.setMapId(nlp.getTask().getMapId());
+            }
+            // 避免 TaskParseService 二次 NLP 抛错，改走结构化调度
+            dispatchReq.setUserInput(null);
+        }
+        if (dispatchReq.getMapId() == null) {
+            dispatchReq.setMapId(llmTaskParseProperties.getDefaultMapId());
         }
 
         dispatchReq.setAutoDispatch(false);
@@ -86,6 +112,7 @@ public class PlanningEndToEndService {
         }
         return out;
     }
+
 
     public boolean approveDispatch(String dispatchTaskId, String planningPayloadJson) {
         DispatchTaskRequest req = parsePayload(planningPayloadJson);

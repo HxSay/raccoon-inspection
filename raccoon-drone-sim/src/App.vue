@@ -566,14 +566,12 @@ function onTelemetry(t: TelemetryPayload) {
   reportRobotBattery1Hz(uavId, t.batteryPercent, enduranceMin)
 }
 
-/** 编队中非任务机的待机位姿上报（任务机由 onTelemetry 覆盖）；仅巡检进行中 */
-function reportPatrolFleetStandby() {
-  if (!inspectionInFlight.value) return
-  if (sceneTab.value !== 'patrol' || patrolDrones.length < 2) return
+/** 输电场景机队心跳：待机也上报，供调度中枢感知在线终端（任务规划/拍卖分配） */
+function reportPatrolFleetPresence() {
+  if (sceneTab.value !== 'patrol' || patrolDrones.length < 1) return
   const online = !simulateDisconnect.value
   const fault = runtimeFaultOpts()
   patrolDrones.forEach((d, i) => {
-    if (i === 0) return
     const uavId = patrolFleetUavIds[i] ?? i + 1
     const p = d.root.position
     const telem: TelemetryPayload = {
@@ -1065,13 +1063,15 @@ function initThree(): () => void {
     const dt = clock.getDelta()
     nest?.tick(dt)
     edgeMetrics.value = edgeSim.tick(dt)
-    if (sceneTab.value === 'patrol' && patrolFleetUavIds.length && inspectionInFlight.value) {
-      reportPatrolFleetStandby()
-      patrolFleetUavIds.forEach((uavId, i) => {
-        const mem = edgeMetrics.value.storagePercent
-        const tasks = i === 0 && activeMissionMeta.value?.taskId ? 1 : 0
-        reportRobotLoad1Hz(uavId, edgeMetrics.value.cpuPercent, mem, tasks)
-      })
+    if (sceneTab.value === 'patrol' && patrolFleetUavIds.length) {
+      reportPatrolFleetPresence()
+      if (inspectionInFlight.value) {
+        patrolFleetUavIds.forEach((uavId, i) => {
+          const mem = edgeMetrics.value.storagePercent
+          const tasks = i === 0 && activeMissionMeta.value?.taskId ? 1 : 0
+          reportRobotLoad1Hz(uavId, edgeMetrics.value.cpuPercent, mem, tasks)
+        })
+      }
     }
     patrolDrones.forEach((d) => d.tick(dt))
     if (sceneTab.value === 'thermal') robotDog?.tick(dt)
