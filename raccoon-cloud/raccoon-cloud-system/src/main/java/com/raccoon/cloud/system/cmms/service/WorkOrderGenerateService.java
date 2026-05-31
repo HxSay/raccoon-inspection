@@ -16,6 +16,8 @@ import com.raccoon.cloud.system.cmms.mapper.InspectionPointMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionTaskMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderDetailMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderMapper;
+import com.raccoon.cloud.system.mapper.UserMapper;
+import com.raccoon.cloud.system.model.User;
 import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitRequest;
 import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitResponse;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +51,11 @@ public class WorkOrderGenerateService {
     private final DeviceInfoMapper deviceInfoMapper;
     private final InspectionPointMapper pointMapper;
     private final InspectionWorkOrderService inspectionWorkOrderService;
+    private final UserMapper userMapper;
     private final ObjectMapper objectMapper;
+
+    @Value("${raccoon.planning.default-inspector-id:1}")
+    private long defaultInspectorId;
 
     @Value("${raccoon.planning.audit-timeout-hours:24}")
     private int auditTimeoutHours;
@@ -64,13 +70,15 @@ public class WorkOrderGenerateService {
 
         LocalDateTime now = LocalDateTime.now();
         String area = StringUtils.hasText(req.getAreaName()) ? req.getAreaName().trim() : "Agent规划区域";
+        Long inspectorId = resolveInspectorId(req.getInspectorId());
+        String inspectorName = resolveInspectorName(inspectorId, req.getInspectorName());
 
         InspectionPlan plan = new InspectionPlan();
         plan.setPlanName("Agent规划-" + area + "-" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmm")));
         plan.setDeviceIds(toDeviceIdsJson(devices));
         plan.setCycleType(0);
         plan.setCycleValue(1);
-        plan.setExecUserId(req.getInspectorId() != null ? req.getInspectorId() : 1L);
+        plan.setExecUserId(inspectorId);
         plan.setStartTime(now);
         plan.setEndTime(now.plusDays(7));
         plan.setStatus(1);
@@ -92,8 +100,8 @@ public class WorkOrderGenerateService {
         order.setOrderNo(genAgentOrderNo());
         order.setArea(area);
         order.setShiftType(1);
-        order.setInspectorId(req.getInspectorId());
-        order.setInspectorName(req.getInspectorName());
+        order.setInspectorId(inspectorId);
+        order.setInspectorName(inspectorName);
         order.setPlanStartTime(now);
         order.setPlanEndTime(now.plusDays(1));
         order.setStatus(InspectionWorkOrderStatus.PENDING_AUDIT);
@@ -329,5 +337,23 @@ public class WorkOrderGenerateService {
 
     private String trim(String s) {
         return StringUtils.hasText(s) ? s.trim() : null;
+    }
+
+    private Long resolveInspectorId(Long fromRequest) {
+        return fromRequest != null ? fromRequest : defaultInspectorId;
+    }
+
+    private String resolveInspectorName(Long inspectorId, String fromRequest) {
+        if (StringUtils.hasText(fromRequest)) {
+            return fromRequest.trim();
+        }
+        User u = userMapper.selectById(inspectorId);
+        if (u == null) {
+            return "系统默认审核人";
+        }
+        if (StringUtils.hasText(u.getNickname())) {
+            return u.getNickname();
+        }
+        return u.getUsername();
     }
 }

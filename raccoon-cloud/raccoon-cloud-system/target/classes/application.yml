@@ -34,6 +34,7 @@ jwt:
 
 raccoon:
   planning:
+    default-inspector-id: 1
     audit-timeout-hours: 24
     escalation-interval-minutes: 60
   drone:
