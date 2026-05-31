@@ -277,14 +277,15 @@ public class WorkOrderGenerateService {
                 continue;
             }
             String n = name.trim();
-            DeviceInfo dev = deviceInfoMapper.selectOne(
+            DeviceInfo found = deviceInfoMapper.selectOne(
                     new QueryWrapper<DeviceInfo>().eq("device_name", n).last("LIMIT 1"));
-            if (dev == null) {
-                dev = deviceInfoMapper.selectOne(
+            if (found == null) {
+                found = deviceInfoMapper.selectOne(
                         new QueryWrapper<DeviceInfo>().like("device_name", n).last("LIMIT 1"));
             }
-            if (dev != null && out.stream().noneMatch(x -> x.getId().equals(dev.getId()))) {
-                out.add(dev);
+            final DeviceInfo device = found;
+            if (device != null && out.stream().noneMatch(x -> x.getId().equals(device.getId()))) {
+                out.add(device);
             }
         }
         return out;
