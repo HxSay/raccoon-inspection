@@ -23,11 +23,25 @@ public final class DispatchConstants {
     /** 巡检间隔权重 10% */
     public static final double WEIGHT_INTERVAL = 0.10;
 
+    // ============== 知识增强权重（命中知识时按比例让渡基础分） ==============
+    /** 知识增强时，五维基础分的占比 75% */
+    public static final double WEIGHT_KNOWLEDGE_BASE = 0.75;
+    /** 规程约束紧迫度权重 15% */
+    public static final double WEIGHT_REGULATION = 0.15;
+    /** 图拓扑影响权重 5% */
+    public static final double WEIGHT_TOPOLOGY = 0.05;
+    /** 故障关联权重 5% */
+    public static final double WEIGHT_FAULT_GRAPH = 0.05;
+
     // ============== 拍卖算法约束 ==============
     /** 终端可承接任务的最低电量阈值 */
     public static final float MIN_BATTERY_PCT = 20.0f;
     /** 单终端最大并发任务数 */
     public static final int MAX_TASK_PER_TERMINAL = 3;
+    /** 应急/故障维修等重型任务的最低能力得分阈值，低于此值排除 */
+    public static final double MIN_CAPABILITY_SCORE = 0.3;
+    /** 知识/规程不匹配的竞拍价惩罚（终端类型与规程推荐不一致时加价） */
+    public static final double KNOWLEDGE_PENALTY = 0.3;
     /** 拍卖竞拍价分量：距离系数 */
     public static final double BID_DISTANCE_COEF = 0.4;
     /** 拍卖竞拍价分量：能耗系数 */

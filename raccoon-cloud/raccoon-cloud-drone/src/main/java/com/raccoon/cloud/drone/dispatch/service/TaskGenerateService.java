@@ -5,10 +5,12 @@ import com.raccoon.cloud.drone.dispatch.dto.DispatchTaskRequest;
 import com.raccoon.cloud.drone.dispatch.dto.DispatchTaskResponse;
 import com.raccoon.cloud.drone.dispatch.enums.DispatchTaskStatusEnum;
 import com.raccoon.cloud.drone.dispatch.model.AssignmentResult;
+import com.raccoon.cloud.drone.dispatch.model.BidPrice;
 import com.raccoon.cloud.drone.dispatch.model.DispatchInspectionTask;
 import com.raccoon.cloud.drone.dispatch.model.DispatchWorkOrder;
 import com.raccoon.cloud.drone.dispatch.model.SimulationResult;
 import com.raccoon.cloud.drone.dispatch.model.TerminalState;
+import com.raccoon.cloud.drone.dispatch.model.knowledge.KnowledgeContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,8 @@ public class TaskGenerateService {
     private final DTSimulationService dtSimulationService;
     private final GlobalPathPlanService globalPathPlanService;
     private final TaskDispatchService taskDispatchService;
+    private final TaskAssignAuditService taskAssignAuditService;
+    private final TaskPlanningKnowledgeService taskPlanningKnowledgeService;
 
     /**
      * 调度中枢主流程。
@@ -68,11 +72,16 @@ public class TaskGenerateService {
             return finish(response, task, start, "场景下无可用终端");
         }
 
-        // —— 4. 优先级评估 —— （步骤 3 即终端感知，已在上一步完成）
-        taskPriorityService.evaluate(task, pool);
+        // —— 3.5 混合 RAG 知识上下文构建（步骤 2，基础设施不可用时降级为空） ——
+        KnowledgeContext knowledge = taskPlanningKnowledgeService.buildKnowledgeContext(task, pool);
+        task.setKnowledgeContext(knowledge);
+
+        // —— 4. 知识增强优先级评估 ——
+        taskPriorityService.evaluate(task, pool, knowledge);
         task.setStatus(DispatchTaskStatusEnum.PRIORITIZED);
         response.setPriority(task.getPriority());
         response.setPriorityScore(task.getPriorityScore());
+        response.setRequiredSensors(new ArrayList<>(task.getRequiredSensors()));
 
         // —— 5. 拍卖分配 ——
         AssignmentResult assignment;
@@ -81,14 +90,28 @@ public class TaskGenerateService {
         } catch (IllegalArgumentException e) {
             return finish(response, task, start, e.getMessage());
         }
+        List<BidPrice> matrix = assignment.getPriceMatrix().getOrDefault(task.getTaskId(), new ArrayList<>());
+        response.setBidMatrix(matrix);
+        applyCitations(task, response);
+
         if (task.getAssignedTerminalId() == null) {
             response.setAssigned(false);
+            response.setBlocked(task.isBlocked());
+            response.setBlockReason(task.getBlockReason());
+            response.setAssignReason(task.getAssignReason());
+            taskAssignAuditService.record(task, null, matrix);
             return finish(response, task, start,
-                    "拍卖未分配到可用终端（已记录价格矩阵 size=" + assignment.getPriceMatrix().size() + "）");
+                    task.getAssignReason() != null ? task.getAssignReason()
+                            : "拍卖未分配到可用终端（已记录价格矩阵 size=" + assignment.getPriceMatrix().size() + "）");
         }
         response.setAssigned(true);
         response.setAssignedTerminalId(task.getAssignedTerminalId());
         response.setBidPrice(task.getBidFinalPrice());
+        response.setAssignReason(task.getAssignReason());
+        matrix.stream()
+                .filter(b -> task.getAssignedTerminalId().equals(b.getTerminalId()))
+                .findFirst()
+                .ifPresent(response::setBidBreakdown);
 
         TerminalState terminal = pool.stream()
                 .filter(t -> task.getAssignedTerminalId().equals(t.getTerminalId()))
@@ -97,6 +120,7 @@ public class TaskGenerateService {
         if (terminal != null) {
             response.setAssignedTerminalName(terminal.getTerminalName());
         }
+        taskAssignAuditService.record(task, terminal, matrix);
 
         // —— 6. 数字孪生预演 ——（按需，单任务关闭后仅做冲突检测）
         if (Boolean.TRUE.equals(request.getEnableSimulation())) {
@@ -138,6 +162,26 @@ public class TaskGenerateService {
                 task.getTaskId(), task.getStatus().getCode(),
                 task.getAssignedTerminalId(), elapsed);
         return response;
+    }
+
+    /**
+     * 从知识上下文提炼分配引用（Milvus chunkId + Neo4j 关系摘要），写入任务与响应，供审计追溯。
+     */
+    private void applyCitations(DispatchInspectionTask task, DispatchTaskResponse response) {
+        KnowledgeContext knowledge = task.getKnowledgeContext();
+        if (knowledge == null) {
+            return;
+        }
+        knowledge.getRegulationChunks().stream()
+                .map(c -> c.getChunkId())
+                .filter(id -> id != null)
+                .forEach(task.getCitedChunkIds()::add);
+        knowledge.getFaultRelations().forEach(r -> task.getCitedGraphRefs().add(
+                "Device[" + r.getDeviceId() + "]-[:HAS_FAULT]->Fault[" + r.getFaultName() + "]"));
+        knowledge.getTopologyNodes().forEach(n -> task.getCitedGraphRefs().add(
+                "Device[" + n.getSourceId() + "]-[:CONNECTS_TO]->Device[" + n.getTargetName() + "]"));
+        response.setCitedChunkIds(new ArrayList<>(task.getCitedChunkIds()));
+        response.setCitedGraphRefs(new ArrayList<>(task.getCitedGraphRefs()));
     }
 
     /**

@@ -2,6 +2,7 @@ package com.raccoon.cloud.drone.dispatch.service;
 
 import com.raccoon.cloud.drone.dispatch.constant.DispatchConstants;
 import com.raccoon.cloud.drone.dispatch.enums.DispatchTaskStatusEnum;
+import com.raccoon.cloud.drone.dispatch.enums.DispatchTaskTypeEnum;
 import com.raccoon.cloud.drone.dispatch.model.AssignmentResult;
 import com.raccoon.cloud.drone.dispatch.model.BidPrice;
 import com.raccoon.cloud.drone.dispatch.model.DispatchInspectionTask;
@@ -9,6 +10,7 @@ import com.raccoon.cloud.drone.dispatch.model.TerminalCapacity;
 import com.raccoon.cloud.drone.dispatch.model.TerminalState;
 import com.raccoon.cloud.drone.dto.GeoPoint;
 import com.raccoon.cloud.drone.util.GeoPathUtils;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +19,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 改进拍卖算法任务分配服务（步骤 5）。
@@ -36,7 +39,10 @@ import java.util.Map;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AuctionAssignService {
+
+    private final SensorRequirementResolver sensorRequirementResolver;
 
     /**
      * 多任务批量拍卖（容量约束下贪心选优）。
@@ -68,6 +74,14 @@ public class AuctionAssignService {
                         Comparator.nullsLast(Comparator.naturalOrder())));
 
         for (DispatchInspectionTask task : ordered) {
+            // 规程硬约束阻断：直接判失败，不参与竞拍
+            if (task.isBlocked()) {
+                task.setStatus(DispatchTaskStatusEnum.FAILED);
+                task.setAssignReason(task.getBlockReason());
+                result.getUnassignedTaskIds().add(task.getTaskId());
+                log.warn("[auction] taskId={} 被规程硬约束阻断: {}", task.getTaskId(), task.getBlockReason());
+                continue;
+            }
             List<BidPrice> prices = new ArrayList<>();
             for (TerminalState terminal : terminals) {
                 prices.add(buildBid(task, terminal,
@@ -82,6 +96,7 @@ public class AuctionAssignService {
 
             if (winner == null) {
                 task.setStatus(DispatchTaskStatusEnum.FAILED);
+                task.setAssignReason(buildNoAssignReason(task, prices));
                 result.getUnassignedTaskIds().add(task.getTaskId());
                 log.warn("[auction] taskId={} 无可用终端可分配", task.getTaskId());
                 continue;
@@ -89,6 +104,11 @@ public class AuctionAssignService {
             task.setAssignedTerminalId(winner.getTerminalId());
             task.setBidFinalPrice(winner.getFinalPrice());
             task.setStatus(DispatchTaskStatusEnum.ASSIGNED);
+
+            TerminalState winnerTerminal = terminals.stream()
+                    .filter(t -> winner.getTerminalId().equals(t.getTerminalId()))
+                    .findFirst().orElse(null);
+            task.setAssignReason(buildAssignReason(task, winnerTerminal, winner, prices));
 
             result.getTaskTerminalMap().put(task.getTaskId(), winner.getTerminalId());
             int next = taskCounters.merge(winner.getTerminalId(), 1, Integer::sum);
@@ -135,6 +155,16 @@ public class AuctionAssignService {
             bid.setExcludeReason("CAPACITY_FULL=" + currentTaskCount);
             return bid;
         }
+        // 3.1) 传感器硬约束（规程/语义要求，如热成像复巡）
+        Set<String> required = task.getRequiredSensors();
+        if (required != null && !required.isEmpty()) {
+            Set<String> missing = sensorRequirementResolver.missingSensors(terminal, required);
+            if (!missing.isEmpty()) {
+                bid.setExcluded(true);
+                bid.setExcludeReason("SENSOR_MISMATCH=" + String.join("/", missing));
+                return bid;
+            }
+        }
         // 4) 距离与能耗
         double distanceM = estimateDistance(task, terminal);
         double energyCost = estimateEnergy(distanceM, terminal);
@@ -147,6 +177,16 @@ public class AuctionAssignService {
         }
         // 5) 能力匹配
         double capabilityMatch = capabilityMatchScore(task, terminal);
+        // 5.1) 重型任务（应急/故障维修）能力阈值排除
+        if (task.getTaskType() != null
+                && (task.getTaskType() == DispatchTaskTypeEnum.EMERGENCY
+                || task.getTaskType() == DispatchTaskTypeEnum.FAULT_REPAIR)
+                && capabilityMatch < DispatchConstants.MIN_CAPABILITY_SCORE) {
+            bid.setExcluded(true);
+            bid.setExcludeReason("LOW_CAPABILITY=" + round(capabilityMatch));
+            bid.setCapabilityMatch(capabilityMatch);
+            return bid;
+        }
         // 6) 优先级加成（0~1）
         double priorityBoost = task.getPriorityScore() != null
                 ? task.getPriorityScore().getFinalScore()
@@ -167,6 +207,56 @@ public class AuctionAssignService {
         bid.setPriorityBoost(priorityBoost);
         bid.setFinalPrice(price);
         return bid;
+    }
+
+    /**
+     * 构建中标终端的可解释分配理由。
+     */
+    private String buildAssignReason(DispatchInspectionTask task, TerminalState terminal,
+                                     BidPrice winner, List<BidPrice> all) {
+        String name = terminal != null && terminal.getTerminalName() != null
+                ? terminal.getTerminalName() : ("终端" + winner.getTerminalId());
+        StringBuilder sb = new StringBuilder("已选择 ").append(name);
+        if (terminal != null && terminal.getTerminalType() != null) {
+            sb.append("（").append(terminal.getTerminalType()).append("）");
+        }
+        sb.append("：");
+        List<String> reasons = new ArrayList<>();
+        if (terminal != null && terminal.getBatteryPct() != null) {
+            reasons.add("在线、电量 " + Math.round(terminal.getBatteryPct()) + "%");
+        }
+        if (task.getRequiredSensors() != null && !task.getRequiredSensors().isEmpty()) {
+            reasons.add("满足规程要求的 " + String.join("/", task.getRequiredSensors()) + " 传感器");
+        }
+        reasons.add("距任务约 " + (int) winner.getDistanceCost() + "m");
+        reasons.add("能力匹配 " + round(winner.getCapabilityMatch()));
+        if (task.getPriority() != null) {
+            reasons.add("任务优先级 " + task.getPriority().getCode());
+        }
+        sb.append(String.join("、", reasons));
+        long candidates = all.stream().filter(p -> !p.isExcluded()).count();
+        sb.append("；在 ").append(candidates).append(" 个合格终端中综合竞拍价最低（")
+                .append(round(winner.getFinalPrice())).append("）。");
+        return sb.toString();
+    }
+
+    /**
+     * 构建「无可用终端」的可解释原因（汇总各排除原因计数）。
+     */
+    private String buildNoAssignReason(DispatchInspectionTask task, List<BidPrice> prices) {
+        Map<String, Integer> reasonCount = new java.util.LinkedHashMap<>();
+        for (BidPrice p : prices) {
+            if (p.isExcluded() && p.getExcludeReason() != null) {
+                String key = p.getExcludeReason().split("=")[0];
+                reasonCount.merge(key, 1, Integer::sum);
+            }
+        }
+        if (reasonCount.isEmpty()) {
+            return "无可用终端：候选终端均不满足约束";
+        }
+        List<String> parts = new ArrayList<>();
+        reasonCount.forEach((k, v) -> parts.add(k + "×" + v));
+        return "无可用终端：" + String.join("、", parts);
     }
 
     /**

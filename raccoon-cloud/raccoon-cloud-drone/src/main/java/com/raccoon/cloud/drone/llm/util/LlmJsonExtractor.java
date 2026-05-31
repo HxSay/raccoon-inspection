@@ -37,7 +37,21 @@ public final class LlmJsonExtractor {
         r.setDeviceNames(parseDeviceNames(node));
         r.setRecommendedDrones(intOrNull(node, "recommendedDrones"));
         r.setFleetReason(text(node, "fleetReason"));
+        r.setRequiredSensors(parseStringArray(node, "requiredSensors"));
         return r;
+    }
+
+    private static List<String> parseStringArray(JsonNode node, String field) {
+        List<String> values = new ArrayList<>();
+        JsonNode arr = node.get(field);
+        if (arr != null && arr.isArray()) {
+            for (JsonNode n : arr) {
+                if (n != null && !n.isNull() && StringUtils.hasText(n.asText())) {
+                    values.add(n.asText().trim());
+                }
+            }
+        }
+        return values;
     }
 
     private static Integer intOrNull(JsonNode node, String field) {

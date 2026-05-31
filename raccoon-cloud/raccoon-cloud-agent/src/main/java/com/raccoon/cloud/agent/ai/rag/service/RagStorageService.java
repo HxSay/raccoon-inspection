@@ -248,7 +248,7 @@ public class RagStorageService {
         if (rows.isEmpty()) {
             return null;
         }
-        return asMap(rows.get(0).get("props"));
+        return asMap(rows.iterator().next().get("props"));
     }
 
     private static boolean isRagDocument(Map<String, Object> props) {

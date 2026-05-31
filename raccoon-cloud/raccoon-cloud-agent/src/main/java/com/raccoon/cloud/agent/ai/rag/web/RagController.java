@@ -6,6 +6,8 @@ import com.raccoon.cloud.agent.ai.rag.dto.RagChatResponse;
 import com.raccoon.cloud.agent.ai.rag.dto.RagDeviceAttachRequest;
 import com.raccoon.cloud.agent.ai.rag.dto.RagDeviceVO;
 import com.raccoon.cloud.agent.ai.rag.dto.RagDocumentVO;
+import com.raccoon.cloud.agent.ai.rag.dto.RagReferenceVO;
+import com.raccoon.cloud.agent.ai.rag.dto.RagSearchRequest;
 import com.raccoon.cloud.agent.ai.rag.service.DocumentIngestionService;
 import com.raccoon.cloud.agent.ai.rag.service.HybridRagService;
 import com.raccoon.cloud.agent.ai.rag.service.RagGraphService;
@@ -59,6 +61,13 @@ public class RagController {
     @PostMapping("/chat")
     public HxResult<RagChatResponse> chat(@RequestBody @Valid RagChatRequest request) {
         return HxResult.success(hybridRagService.chat(request));
+    }
+
+    /** 纯向量语义检索（不生成回答），供中央 Agent 任务规划构建知识上下文 */
+    @PostMapping("/search")
+    public HxResult<List<RagReferenceVO>> search(@RequestBody @Valid RagSearchRequest request) {
+        return HxResult.success(hybridRagService.searchKnowledge(
+                request.getQuery(), request.getDeviceId(), request.getTopK() == null ? 5 : request.getTopK()));
     }
 
     /** 文档列表：支持文件名关键字 / 设备 ID 筛选 */

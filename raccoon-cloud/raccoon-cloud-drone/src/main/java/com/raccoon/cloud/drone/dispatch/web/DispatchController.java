@@ -1,8 +1,10 @@
 package com.raccoon.cloud.drone.dispatch.web;
 
+import com.raccoon.cloud.drone.dispatch.agent.KnowledgeAugmentedPlanningAgent;
 import com.raccoon.cloud.drone.dispatch.dto.DispatchSnapshotVO;
 import com.raccoon.cloud.drone.dispatch.dto.DispatchTaskRequest;
 import com.raccoon.cloud.drone.dispatch.dto.DispatchTaskResponse;
+import com.raccoon.cloud.drone.dispatch.dto.PlanningResult;
 import com.raccoon.cloud.drone.dispatch.model.TerminalState;
 import com.raccoon.cloud.drone.dispatch.service.TaskGenerateService;
 import com.raccoon.cloud.drone.dispatch.service.TerminalStateService;
@@ -31,6 +33,7 @@ public class DispatchController {
 
     private final TaskGenerateService taskGenerateService;
     private final TerminalStateService terminalStateService;
+    private final KnowledgeAugmentedPlanningAgent knowledgeAugmentedPlanningAgent;
 
     /**
      * 提交任务并执行端到端调度。
@@ -38,6 +41,15 @@ public class DispatchController {
     @PostMapping("/task/generate")
     public HxResult<DispatchTaskResponse> generate(@Valid @RequestBody DispatchTaskRequest request) {
         return HxResult.success(taskGenerateService.generate(request));
+    }
+
+    /**
+     * 知识增强任务规划（Tool-Calling 编排入口）。
+     * <p>确定性引擎产出权威分配结果，叠加本地 LLM 经工具编排的可解释规划叙述。
+     */
+    @PostMapping("/planning/enhanced-assign")
+    public HxResult<PlanningResult> enhancedAssign(@Valid @RequestBody DispatchTaskRequest request) {
+        return HxResult.success(knowledgeAugmentedPlanningAgent.planAndAssign(request));
     }
 
     /**

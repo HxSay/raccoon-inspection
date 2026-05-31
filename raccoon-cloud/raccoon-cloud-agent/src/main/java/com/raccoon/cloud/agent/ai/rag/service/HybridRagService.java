@@ -102,6 +102,24 @@ public class HybridRagService {
                 .build();
     }
 
+    /**
+     * 纯向量语义检索（不调用 LLM 生成），供中央 Agent 任务规划构建知识上下文使用。
+     *
+     * @param query    检索问题
+     * @param deviceId 设备过滤（可空）
+     * @param topK     返回条数（&lt;=0 默认 5）
+     * @return 向量检索片段引用
+     */
+    public List<RagReferenceVO> searchKnowledge(String query, String deviceId, int topK) {
+        if (!StringUtils.hasText(query)) {
+            return List.of();
+        }
+        int k = topK > 0 ? topK : 5;
+        List<Document> docs = safeVectorSearch(query.trim(),
+                k, StringUtils.hasText(deviceId) ? deviceId.trim() : null);
+        return buildVectorReferences(docs);
+    }
+
     private List<Document> safeVectorSearch(String question, int topK, String deviceId) {
         try {
             SearchRequest.Builder builder = SearchRequest.builder()

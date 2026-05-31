@@ -18,6 +18,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-ag
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\dto\Neo4jHealthVO.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\ai\rag\dto\MilvusCollectionStatsVO.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\ai\rag\dto\RagDocumentVO.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\ai\rag\dto\RagSearchRequest.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\ai\rag\config\RagChatClientConfiguration.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\ai\rag\dto\RagDeviceVO.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-agent\src\main\java\com\raccoon\cloud\agent\ai\milvus\web\MilvusTestController.java

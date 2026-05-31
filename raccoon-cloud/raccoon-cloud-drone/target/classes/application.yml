@@ -42,6 +42,13 @@ logging:
     com.raccoon.cloud.drone: debug
 
 raccoon:
+  knowledge:
+    # 中央 Agent 任务规划的混合 RAG 知识增强（调用 raccoon-cloud-agent 的 Milvus/Neo4j）
+    enabled: true
+    # agent 服务地址：直连 8081，或经网关 http://localhost:8080/api/agent
+    base-url: http://localhost:8081
+    timeout-ms: 1500
+    top-k: 5
   llm:
     task-parse:
       # 本地 7B 模型(qwen2:7b)单次推理约 15~20s，超时需放宽，否则会超时降级到规则解析

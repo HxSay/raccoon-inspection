@@ -98,11 +98,36 @@ public class DispatchInspectionTask {
     /** 是否「区域内全部设备/杆塔」巡检意图 */
     private Boolean inspectAllDevices;
 
+    /**
+     * 规程 / 语义要求的必备传感器（硬约束）。
+     * <p>来源：LLM 语义解析（如「热成像复巡」→ THERMAL_IR）+ 知识库规程硬约束。
+     * 拍卖分配时不满足该传感器要求的终端将被强制排除。
+     */
+    private java.util.Set<String> requiredSensors = new java.util.LinkedHashSet<>();
+
+    /** 是否被硬性规程约束阻断（如雨天禁飞），阻断后不再下发 */
+    private boolean blocked;
+
+    /** 阻断原因 */
+    private String blockReason;
+
+    /** 混合 RAG 知识上下文（步骤 2 构建，可空） */
+    private com.raccoon.cloud.drone.dispatch.model.knowledge.KnowledgeContext knowledgeContext;
+
     /** 分配结果：被分到的终端 ID（未分配为 null） */
     private Long assignedTerminalId;
 
     /** 拍卖竞拍价 */
     private Double bidFinalPrice;
+
+    /** 分配理由（可解释，分配完成后填充） */
+    private String assignReason;
+
+    /** 分配引用的知识片段 ID（Milvus chunkId） */
+    private List<String> citedChunkIds = new ArrayList<>();
+
+    /** 分配引用的图关系摘要（Neo4j） */
+    private List<String> citedGraphRefs = new ArrayList<>();
 
     /** 全局路径规划结果 */
     private GlobalPathPlan pathPlan;

@@ -37,4 +37,10 @@ public class LlmTaskSlotResult {
      * 选择该出动架数的理由（LLM 生成，缺省时由后端按设备数 / 可用机数兜底生成），用于在巡检 Agent 面板展示。
      */
     private String fleetReason;
+
+    /**
+     * 任务语义要求的传感器（如「热成像复巡」→ THERMAL_IR）。
+     * 作为调度拍卖的硬约束之一，缺省为空。
+     */
+    private List<String> requiredSensors = new ArrayList<>();
 }

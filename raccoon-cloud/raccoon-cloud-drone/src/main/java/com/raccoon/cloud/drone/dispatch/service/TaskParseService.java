@@ -59,6 +59,9 @@ public class TaskParseService {
     @Autowired
     private ResultCheckAndFillService resultCheckAndFillService;
 
+    @Autowired
+    private SensorRequirementResolver sensorRequirementResolver;
+
     /**
      * 解析请求为标准化任务模型。
      *
@@ -93,6 +96,7 @@ public class TaskParseService {
         applyDefaults(task);
         resolveDevices(task);
         applyRiskFactors(request, task);
+        applyRequiredSensors(request, task);
 
         task.setStatus(DispatchTaskStatusEnum.PARSED);
         log.info("[task-parse] taskId={} type={} priority={} mapId={} devices={} elapsedMs={}",
@@ -123,6 +127,14 @@ public class TaskParseService {
             }
             if (!StringUtils.hasText(task.getRemark()) && StringUtils.hasText(slots.getRemark())) {
                 task.setRemark(slots.getRemark());
+            }
+            if (!CollectionUtils.isEmpty(slots.getRequiredSensors())) {
+                for (String s : slots.getRequiredSensors()) {
+                    String norm = sensorRequirementResolver.normalize(s);
+                    if (StringUtils.hasText(norm)) {
+                        task.getRequiredSensors().add(norm);
+                    }
+                }
             }
         }
         InspectionTask inner = response.getTask();
@@ -221,6 +233,35 @@ public class TaskParseService {
             GeoPoint p = new GeoPoint(d.getLongitude(), d.getLatitude(),
                     d.getHeight() == null ? 0.0 : d.getHeight());
             task.getDeviceWaypoints().add(p);
+        }
+    }
+
+    /**
+     * 汇总任务所需传感器：LLM 槽位（已在 mergeNlpParse 写入）+ 自然语言/备注关键词兜底 +
+     * 结构化扩展字段 extension.requiredSensors。
+     */
+    @SuppressWarnings("unchecked")
+    private void applyRequiredSensors(DispatchTaskRequest req, DispatchInspectionTask task) {
+        StringBuilder text = new StringBuilder();
+        if (StringUtils.hasText(task.getUserInput())) {
+            text.append(task.getUserInput()).append(' ');
+        }
+        if (StringUtils.hasText(task.getRemark())) {
+            text.append(task.getRemark());
+        }
+        task.getRequiredSensors().addAll(sensorRequirementResolver.fromText(text.toString()));
+
+        Object ext = task.getExtension().get("requiredSensors");
+        if (ext instanceof List<?> list) {
+            for (Object o : list) {
+                String norm = sensorRequirementResolver.normalize(String.valueOf(o));
+                if (StringUtils.hasText(norm)) {
+                    task.getRequiredSensors().add(norm);
+                }
+            }
+        }
+        if (!task.getRequiredSensors().isEmpty()) {
+            log.info("[task-parse] taskId={} 需求传感器={}", task.getTaskId(), task.getRequiredSensors());
         }
     }
 

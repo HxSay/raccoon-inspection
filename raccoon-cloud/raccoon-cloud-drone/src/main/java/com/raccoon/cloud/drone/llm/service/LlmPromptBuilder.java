@@ -28,6 +28,8 @@ public class LlmPromptBuilder {
               · 单个目标（如只巡检 1 基杆塔）→ 1，就近派 1 架即可，避免浪费续航；
               · 多个目标或「所有/全部杆塔」→ 在不超过 3 架的前提下，目标越多越倾向多架并行以缩短巡检时间；
             - fleetReason: 用一句中文说明为什么出动这个数量（结合目标数量、并行效率、续航等）。
+            - requiredSensors: 任务语义明确要求的传感器编码数组，从 [THERMAL_IR, LIDAR, GAS, ZOOM_CAMERA, VISIBLE_LIGHT] 中选；
+              如「热成像/红外/测温/温度异常复巡」→ ["THERMAL_IR"]；「激光点云/三维建模」→ ["LIDAR"]；「气体检测」→ ["GAS"]；无明确要求则为 []。
             只输出一个 JSON 对象，不要其它文字。
             """;
 
@@ -40,7 +42,7 @@ public class LlmPromptBuilder {
     /** Few-Shot 示例 2 */
     private static final String FEW_SHOT_2_USER = "紧急复巡变电站场景的主变压器和断路器";
     private static final String FEW_SHOT_2_ASSISTANT = """
-            {"taskType":"RE_INSPECTION","areaName":"变电站场景","deviceNames":["主变压器","断路器"],"priority":"URGENT","planTime":"","remark":"紧急复巡","recommendedDrones":2,"fleetReason":"两类设备相距较远，紧急任务下 2 架同时复巡更快锁定隐患"}
+            {"taskType":"RE_INSPECTION","areaName":"变电站场景","deviceNames":["主变压器","断路器"],"priority":"URGENT","planTime":"","remark":"紧急复巡","recommendedDrones":2,"fleetReason":"两类设备相距较远，紧急任务下 2 架同时复巡更快锁定隐患","requiredSensors":["THERMAL_IR"]}
             """;
 
     /** Few-Shot 示例 3 */
