@@ -49,6 +49,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-dr
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\service\FieldSceneCoordinateResolver.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\dto\DispatchSnapshotVO.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\enums\DispatchTaskStatusEnum.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\planning\web\PlanningEndToEndController.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\web\NlpTaskParseController.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\config\DroneMetaObjectHandler.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\model\InspectionTask.java
@@ -60,10 +61,12 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-dr
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\model\GlobalPathPlan.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\mapper\UavRobotRuntimeStatusMapper.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\service\impl\FieldSceneDeviceServiceImpl.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\planning\integration\SystemCmmsClient.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\agent\TaskPlanningAgentTools.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\model\knowledge\KnowledgeContext.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\llm\service\LlmResultConvertService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\service\TaskDispatchService.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\planning\service\PlanningEndToEndService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\mapper\UavMapMapper.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\entity\UavRoutePlan.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-drone\src\main\java\com\raccoon\cloud\drone\dispatch\model\TerminalState.java
