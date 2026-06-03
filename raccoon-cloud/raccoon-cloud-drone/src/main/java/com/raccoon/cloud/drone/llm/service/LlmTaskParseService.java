@@ -3,6 +3,7 @@ package com.raccoon.cloud.drone.llm.service;
 import com.raccoon.cloud.drone.llm.client.LlmChatClient;
 import com.raccoon.cloud.drone.llm.config.LlmTaskParseProperties;
 import com.raccoon.cloud.drone.llm.model.LlmTaskSlotResult;
+import com.raccoon.cloud.drone.llm.util.InspectionSlotNormalizer;
 import com.raccoon.cloud.drone.llm.util.LlmJsonExtractor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,7 +30,17 @@ public class LlmTaskParseService {
     @Autowired
     private LlmTaskParseProperties properties;
 
+    @Autowired
+    private InspectionSlotNormalizer slotNormalizer;
+
     public LlmTaskSlotResult parse(String cleanedInput) {
+        if (shouldUseRuleFastPath(cleanedInput)) {
+            LlmTaskSlotResult rule = ruleParseService.parse(cleanedInput);
+            if (hasResolvedTargets(rule)) {
+                log.info("规则快速路径命中（杆塔/全量意图），跳过 LLM");
+                return rule;
+            }
+        }
         String prompt = llmPromptBuilder.buildPrompt(cleanedInput);
         int maxRetries = Math.max(1, properties.getMaxRetries());
         Exception lastEx = null;
@@ -49,6 +60,18 @@ public class LlmTaskParseService {
 
         log.error("LLM 解析全部失败，降级规则解析: {}", lastEx != null ? lastEx.getMessage() : "unknown");
         return ruleParseService.parse(cleanedInput);
+    }
+
+    private boolean shouldUseRuleFastPath(String cleanedInput) {
+        if (cleanedInput == null || cleanedInput.isBlank()) {
+            return false;
+        }
+        return slotNormalizer.isInspectAllDevicesIntent(cleanedInput)
+                || !slotNormalizer.extractTowerDeviceNames(cleanedInput).isEmpty();
+    }
+
+    private boolean hasResolvedTargets(LlmTaskSlotResult rule) {
+        return rule.getDeviceNames() != null && !rule.getDeviceNames().isEmpty();
     }
 
     private String callWithTimeout(String prompt) throws Exception {

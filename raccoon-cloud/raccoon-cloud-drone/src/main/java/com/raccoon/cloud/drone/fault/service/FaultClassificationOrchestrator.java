@@ -50,7 +50,9 @@ public class FaultClassificationOrchestrator {
         result.setPlan(plan);
         result.setExpandedScope(scope);
         result.setDispatch(dispatch);
-        result.setMessage(dispatch.isSuccess() ? "故障分级处置完成，复巡已插单"
+        int devN = scope.getAllDeviceIds().size();
+        result.setMessage(dispatch.isSuccess()
+                ? "故障分级处置完成，已扩范围纳入 " + devN + " 个设备并插单应急复巡"
                 : "定级完成，复巡插单部分失败：" + dispatch.getMessage());
         log.info("[fault-orchestrator] eventId={} level={} dispatchOk={}",
                 event.getEventId(), level.getCode(), dispatch.isSuccess());

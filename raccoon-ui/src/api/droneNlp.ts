@@ -38,9 +38,14 @@ export interface NlpTaskParseResponse {
   parseSource?: string
 }
 
-export const nlpTaskParse = (userInput: string) =>
+export const nlpTaskParse = (
+  userInput: string,
+  opts?: { ruleOnly?: boolean; timeoutMs?: number }
+) =>
   request<NlpTaskParseResponse>({
     url: '/drone/nlp/task-parse',
     method: 'post',
-    data: { userInput }
+    params: opts?.ruleOnly ? { ruleOnly: true } : undefined,
+    data: { userInput },
+    timeout: opts?.timeoutMs ?? (opts?.ruleOnly ? 15000 : 65000)
   })

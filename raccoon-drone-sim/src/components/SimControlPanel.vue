@@ -28,6 +28,15 @@ const simulateLowBatteryModel = defineModel<boolean>('simulateLowBattery', { req
 const simulateRtkLostModel = defineModel<boolean>('simulateRtkLost', { required: true })
 const routeFetchUavIdModel = defineModel<number | undefined>('routeFetchUavId')
 const routeFetchPlanIdModel = defineModel<number | undefined>('routeFetchPlanId')
+/** 杆塔 1~5 火情模拟开关（与 sceneHazard 联动） */
+const fireTowerFlagsModel = defineModel<boolean[]>('fireTowerFlags', { default: () => [false, false, false, false, false] })
+
+function onFireToggle(index: number, val: boolean) {
+  const arr = [...(fireTowerFlagsModel.value ?? [])]
+  while (arr.length < 5) arr.push(false)
+  arr[index] = val
+  fireTowerFlagsModel.value = arr
+}
 </script>
 
 <template>
@@ -63,7 +72,7 @@ const routeFetchPlanIdModel = defineModel<number | undefined>('routeFetchPlanId'
     </div>
 
     <div class="sim-panel-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
-      <el-collapse class="sim-collapse" :model-value="['edge', 'view', 'deploy', 'fault', 'wp', 'tower', 'route']">
+      <el-collapse class="sim-collapse" :model-value="['edge', 'view', 'deploy', 'scene-fx', 'fault', 'wp', 'tower', 'route']">
         <el-collapse-item title="边缘终端负载" name="edge">
           <div class="grid grid-cols-2 gap-2 text-[11px]">
             <div>
@@ -94,6 +103,19 @@ const routeFetchPlanIdModel = defineModel<number | undefined>('routeFetchPlanId'
             <el-radio value="groundStation">地面站（+100ms RTT）</el-radio>
             <el-radio value="onboard">机载（+20ms RTT）</el-radio>
           </el-radio-group>
+        </el-collapse-item>
+
+        <el-collapse-item v-if="sceneTabModel === 'patrol'" title="场景效果" name="scene-fx">
+          <p class="mb-2 text-[10px] leading-relaxed text-[var(--ia-muted)]">
+            开启后该杆塔呈现火情特效；无人机飞过拍照点时将检出火情并触发云端故障分级。
+          </p>
+          <div v-for="i in 5" :key="i" class="mb-1">
+            <el-switch
+              :model-value="fireTowerFlagsModel?.[i - 1] ?? false"
+              :active-text="`杆塔 ${i} 火情模拟`"
+              @update:model-value="(v: boolean) => onFireToggle(i - 1, v)"
+            />
+          </div>
         </el-collapse-item>
 
         <el-collapse-item title="异常注入" name="fault">

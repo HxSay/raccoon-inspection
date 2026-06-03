@@ -4,6 +4,7 @@ import com.raccoon.cloud.drone.dispatch.dto.DispatchTaskRequest;
 import com.raccoon.cloud.drone.dispatch.dto.DispatchTaskResponse;
 import com.raccoon.cloud.drone.dispatch.enums.DispatchTaskTypeEnum;
 import com.raccoon.cloud.drone.dispatch.service.TaskGenerateService;
+import com.raccoon.cloud.drone.dto.UavRouteDispatchPayload;
 import com.raccoon.cloud.drone.entity.UavInspectionDevice;
 import com.raccoon.cloud.drone.fault.dto.ExpandedScope;
 import com.raccoon.cloud.drone.fault.dto.FaultResponsePlan;
@@ -47,8 +48,13 @@ public class ReinspectTaskDispatchService {
         req.setRequestId("FAULT-" + event.getEventId());
         req.setTaskType(DispatchTaskTypeEnum.RE_INSPECTION.getCode());
         req.setMapId(event.getMapId());
-        req.setDeviceIds(new ArrayList<>(scope.getAllDeviceIds()));
+        List<Long> deviceIds = new ArrayList<>(scope.getAllDeviceIds());
+        req.setDeviceIds(deviceIds);
+        req.setDeviceNames(resolveDeviceNames(deviceIds));
         req.setWaypoints(scope.getCheckPoints());
+        if (plan.getLevel() == FaultLevel.CRITICAL) {
+            req.setUserInput("应急扩范围复巡 " + String.join(" ", req.getDeviceNames()));
+        }
         req.setPriority(plan.getLevel() == FaultLevel.CRITICAL ? "CRITICAL" : "URGENT");
         req.setRemark("故障复巡 eventId=" + event.getEventId() + " type=" + event.getFaultType());
         req.setEnableSimulation(plan.getLevel() != FaultLevel.GENERAL);
@@ -65,7 +71,13 @@ public class ReinspectTaskDispatchService {
             DispatchTaskResponse resp = taskGenerateService.generate(req);
             faultAlarmService.pushByLevel(plan.getLevel(), event, plan);
             if (resp.isAssigned()) {
-                return ReinspectDispatchResult.success(resp.getTaskId(), resp.getAssignedTerminalId());
+                UavRouteDispatchPayload payload = resp.getWorkOrder() != null
+                        ? resp.getWorkOrder().getPayload() : null;
+                return ReinspectDispatchResult.success(
+                        resp.getTaskId(),
+                        resp.getAssignedTerminalId(),
+                        payload,
+                        deviceIds.size());
             }
             return ReinspectDispatchResult.failed(resp.getMessage() != null
                     ? resp.getMessage() : "复巡任务未分配到终端");
@@ -73,5 +85,16 @@ public class ReinspectTaskDispatchService {
             log.error("[fault-reinspect] 调度失败 eventId={}", event.getEventId(), e);
             return ReinspectDispatchResult.failed(e.getMessage());
         }
+    }
+
+    private List<String> resolveDeviceNames(List<Long> deviceIds) {
+        List<String> names = new ArrayList<>();
+        for (Long id : deviceIds) {
+            UavInspectionDevice dev = deviceMapper.selectById(id);
+            if (dev != null && dev.getDeviceName() != null && !dev.getDeviceName().isBlank()) {
+                names.add(dev.getDeviceName().trim());
+            }
+        }
+        return names;
     }
 }

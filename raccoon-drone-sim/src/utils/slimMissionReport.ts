@@ -22,6 +22,7 @@ export interface SlimMissionReportPayload {
     payload?: Record<string, unknown>
     previewDataUrl?: string
   }>
+  anomalyEvents?: MissionReport['anomalyEvents']
 }
 
 const trimUrl = (url?: string) => (url && url.length <= 900 ? url : url ? url.slice(0, 900) : undefined)
@@ -49,6 +50,7 @@ export function slimMissionReport(report: MissionReport): SlimMissionReportPaylo
       modalityType: s.modalityType,
       payload: s.payload,
       previewDataUrl: trimUrl(s.previewDataUrl)
-    }))
+    })),
+    anomalyEvents: report.anomalyEvents
   }
 }

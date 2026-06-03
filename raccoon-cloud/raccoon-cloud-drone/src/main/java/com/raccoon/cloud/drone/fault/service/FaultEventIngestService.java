@@ -23,7 +23,7 @@ public class FaultEventIngestService {
     @Transactional
     public FaultHandleResult ingest(FaultEventReport report) {
         FaultEvent event = normalize(report);
-        if (persistenceService.isDuplicate(event)) {
+        if (!shouldSkipDedupe(report) && persistenceService.isDuplicate(event)) {
             return FaultHandleResult.merged(event.getEventId());
         }
         persistenceService.persist(event);
@@ -51,5 +51,13 @@ public class FaultEventIngestService {
             }
         }
         return event;
+    }
+
+    private boolean shouldSkipDedupe(FaultEventReport report) {
+        if (Boolean.TRUE.equals(report.getSkipDedupe())) {
+            return true;
+        }
+        Object sim = report.getExtData() != null ? report.getExtData().get("simulation") : null;
+        return Boolean.TRUE.equals(sim) || "true".equalsIgnoreCase(String.valueOf(sim));
     }
 }

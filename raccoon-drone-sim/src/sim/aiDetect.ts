@@ -45,12 +45,29 @@ export function buildPhotoMeta(args: {
   }
 }
 
+export interface AiDetectOptions {
+  /** 场景已注入火情模拟时强制检出 */
+  fireHazard?: boolean
+}
+
 /**
- * 本地推理（异步）：固定小延迟 + 随机缺陷标签。
+ * 本地推理（异步）：固定小延迟 + 随机缺陷标签；火情模拟时检出 FIRE。
  */
-export async function runLocalAiDetect(photo: PhotoCaptureMeta): Promise<AiDefectResult> {
+export async function runLocalAiDetect(
+  photo: PhotoCaptureMeta,
+  options?: AiDetectOptions
+): Promise<AiDefectResult> {
   const inferenceMs = randomBetween(35, 120)
   await new Promise((r) => setTimeout(r, inferenceMs))
+  if (options?.fireHazard) {
+    return {
+      photoId: photo.id,
+      hasDefect: true,
+      label: '火焰/烟火',
+      confidence: randomBetween(0.88, 0.97),
+      inferenceMs: Math.round(inferenceMs)
+    }
+  }
   const hasDefect = Math.random() < 0.35
   const labels = ['绝缘子破损', '导线异物', '销钉脱落', '正常']
   const label = hasDefect ? labels[Math.floor(Math.random() * 3)] : labels[3]

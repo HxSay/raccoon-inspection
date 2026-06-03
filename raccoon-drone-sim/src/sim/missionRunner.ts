@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { AUTO_FLIGHT_SPEED, INSPECTION_POINT_SPEED, PHOTO_GIMBAL_PITCH_DEG } from './constants'
 import { buildPhotoMeta, runLocalAiDetect } from './aiDetect'
 import { collectMultimodalAtWaypoint } from './multimodalSim'
+import { isTowerFireEnabled, resolveTowerIndexFromSceneX } from './sceneHazard'
 import type { MultimodalSample } from './multimodalTypes'
 import {
   convertToDjiWaypointMission,
@@ -16,6 +17,7 @@ import type {
   AiDefectResult,
   CloudPathPoint,
   MissionInspectable,
+  MissionAnomalyEvent,
   MissionReport,
   PhotoCaptureMeta,
   TelemetryPayload
@@ -80,6 +82,8 @@ export interface MissionRunnerOptions {
   /** 边缘定时上报云端（1Hz，写入 uav_location_history） */
   onCloudReport?: (t: TelemetryPayload) => void
   onPhoto: (p: PhotoCaptureMeta, ai: AiDefectResult) => void
+  /** 航点拍照检出紧急异常（火情等），用于父页面即时故障分级与复巡 */
+  onAnomaly?: (ev: MissionAnomalyEvent) => void
   /** 拍照帧：用仿真相机对当前 Three 场景离屏渲染（返回 JPEG data URL） */
   captureInspectionPhoto?: () => string | null | Promise<string | null>
   onComplete: (r: MissionReport) => void
@@ -118,6 +122,9 @@ export class MissionRunner {
   private photos: PhotoCaptureMeta[] = []
   private aiResults: AiDefectResult[] = []
   private multimodalSamples: MultimodalSample[] = []
+  private anomalyEvents: MissionAnomalyEvent[] = []
+  /** 同一杆塔火情只即时上报一次，避免重复 ingest */
+  private anomalyNotifiedKeys = new Set<string>()
   private telemetrySent = 0
   private missionPath: CloudPathPoint[] = []
   private djiMissionJson = ''
@@ -156,6 +163,8 @@ export class MissionRunner {
     this.photos = []
     this.aiResults = []
     this.multimodalSamples = []
+    this.anomalyEvents = []
+    this.anomalyNotifiedKeys.clear()
     this.telemetrySent = 0
     this.capturing = false
     this.takeoffBlend = 0
@@ -180,6 +189,8 @@ export class MissionRunner {
       this.photos = []
       this.aiResults = []
       this.multimodalSamples = []
+      this.anomalyEvents = []
+    this.anomalyNotifiedKeys.clear()
       this.triggered.clear()
       this.telemetrySent = 0
       this.u = 0
@@ -418,12 +429,34 @@ export class MissionRunner {
           imageDataUrl
         })
         this.photos.push(meta)
+        const towerIdx = resolveTowerIndexFromSceneX(pos.x, pos.z)
+        const fireHazard = towerIdx != null && isTowerFireEnabled(towerIdx)
         this.opts.onStatus('多模态采集中（可见光/热成像/声音/振动/温度）…')
-        const mm = await collectMultimodalAtWaypoint(meta)
+        const mm = await collectMultimodalAtWaypoint(meta, { fireHazard })
         this.multimodalSamples.push(...mm)
-        this.opts.onStatus('本地 AI 缺陷检测中…')
-        const ai = await runLocalAiDetect(meta)
+        this.opts.onStatus(fireHazard ? '本地 AI：检测到火情异常…' : '本地 AI 缺陷检测中…')
+        const ai = await runLocalAiDetect(meta, { fireHazard })
         this.aiResults.push(ai)
+        if (fireHazard && towerIdx != null) {
+          const ev: MissionAnomalyEvent = {
+            faultType: 'FIRE',
+            towerIndex: towerIdx,
+            waypointIndex: ph.wpIndex,
+            confidence: ai.confidence,
+            description: `杆塔${towerIdx} 场景火情模拟，AI 检出：${ai.label}`,
+            photoId: meta.id,
+            aiLabel: ai.label
+          }
+          this.anomalyEvents.push(ev)
+          const notifyKey = `FIRE-${towerIdx}`
+          if (!this.anomalyNotifiedKeys.has(notifyKey)) {
+            this.anomalyNotifiedKeys.add(notifyKey)
+            this.opts.onStatus(
+              `【紧急】杆塔${towerIdx} 检出${ai.label}（${(ai.confidence * 100).toFixed(1)}%），正在上报调度并触发扩范围复巡…`
+            )
+            this.opts.onAnomaly?.(ev)
+          }
+        }
         this.opts.onPhoto(meta, ai)
         this.capturing = false
         this.opts.onStatus(
@@ -464,6 +497,7 @@ export class MissionRunner {
       photos: [...this.photos],
       aiResults: [...this.aiResults],
       multimodalSamples: [...this.multimodalSamples],
+      anomalyEvents: this.anomalyEvents.length ? [...this.anomalyEvents] : undefined,
       telemetrySent: this.telemetrySent,
       bufferedWhileOffline: this.opts.stateReport.getBufferedCount()
     }

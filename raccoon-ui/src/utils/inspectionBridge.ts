@@ -15,6 +15,17 @@ export const MSG_INSPECTION_STATUS = 'RACCOON_INSPECTION_STATUS'
 export const MSG_INSPECTION_MISSION_COMPLETE = 'RACCOON_INSPECTION_MISSION_COMPLETE'
 /** 仿真 → 父页面：任务异常 */
 export const MSG_INSPECTION_MISSION_ERROR = 'RACCOON_INSPECTION_MISSION_ERROR'
+/** 仿真 → 父页面：巡检中发现紧急异常（火情等），需立即分级与复巡 */
+export const MSG_INSPECTION_ANOMALY = 'RACCOON_INSPECTION_ANOMALY'
+
+export interface InspectionAnomalyPayload {
+  faultType: string
+  towerIndex?: number
+  waypointIndex?: number
+  confidence?: number
+  description?: string
+  aiLabel?: string
+}
 
 export interface InspectionDispatchMessage {
   type: typeof MSG_INSPECTION_DISPATCH

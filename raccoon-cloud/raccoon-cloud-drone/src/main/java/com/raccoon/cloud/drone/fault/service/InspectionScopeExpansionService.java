@@ -7,7 +7,10 @@ import com.raccoon.cloud.drone.dto.GeoPoint;
 import com.raccoon.cloud.drone.entity.UavInspectionDevice;
 import com.raccoon.cloud.drone.fault.dto.ExpandedScope;
 import com.raccoon.cloud.drone.fault.dto.FaultResponsePlan;
+import com.raccoon.cloud.drone.fault.enums.FaultLevel;
 import com.raccoon.cloud.drone.fault.model.FaultEvent;
+import com.raccoon.cloud.drone.llm.catalog.InspectionCatalogService;
+import com.raccoon.cloud.drone.llm.catalog.PatrolSceneGeometry;
 import com.raccoon.cloud.drone.mapper.UavInspectionDeviceMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,13 +20,18 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class InspectionScopeExpansionService {
 
+    private static final Pattern PATROL_TOWER_NAME = Pattern.compile("杆塔\\s*([1-5])");
+
     private final AgentKnowledgeClient agentKnowledgeClient;
     private final UavInspectionDeviceMapper deviceMapper;
+    private final InspectionCatalogService catalogService;
 
     public ExpandedScope calculate(FaultEvent event, FaultResponsePlan plan) {
         ExpandedScope scope = new ExpandedScope();
@@ -45,8 +53,42 @@ public class InspectionScopeExpansionService {
                 scope.setRelatedDeviceIds(new ArrayList<>(merged));
             }
         }
+        applyCriticalFirePatrolExpansion(event, plan, scope);
         scope.setCheckPoints(buildCheckPoints(scope));
         return scope;
+    }
+
+    /**
+     * 紧急火情：输电场景扩至走廊全线杆塔（仿真 1~5 基），实现「扩大巡检范围」而非单点复拍。
+     */
+    private void applyCriticalFirePatrolExpansion(FaultEvent event, FaultResponsePlan plan, ExpandedScope scope) {
+        if (plan.getLevel() != FaultLevel.CRITICAL || event.getFaultType() == null) {
+            return;
+        }
+        String ft = event.getFaultType().trim().toUpperCase();
+        if (!ft.contains("FIRE") && !ft.contains("SMOKE")) {
+            return;
+        }
+        Long mapId = event.getMapId() != null ? event.getMapId() : 1L;
+        Set<Long> merged = new LinkedHashSet<>(scope.getAllDeviceIds());
+        for (UavInspectionDevice d : catalogService.listDevicesByMap(mapId)) {
+            if (d.getDeviceName() == null) {
+                continue;
+            }
+            Matcher m = PATROL_TOWER_NAME.matcher(d.getDeviceName().trim());
+            if (m.find()) {
+                merged.add(d.getId());
+            }
+        }
+        if (merged.size() <= 1) {
+            for (int t = 1; t <= 5; t++) {
+                catalogService.findDevicesByMapAndNames(mapId, List.of("杆塔" + t))
+                        .forEach(dev -> merged.add(dev.getId()));
+            }
+        }
+        scope.setRelatedDeviceIds(merged.stream()
+                .filter(id -> !id.equals(scope.getPrimaryDeviceId()))
+                .toList());
     }
 
     private List<Long> queryRelatedDevices(Long deviceId, int depth) {
@@ -94,17 +136,33 @@ public class InspectionScopeExpansionService {
         List<GeoPoint> points = new ArrayList<>();
         for (Long id : scope.getAllDeviceIds()) {
             UavInspectionDevice dev = deviceMapper.selectById(id);
-            if (dev == null || dev.getLongitude() == null) {
+            if (dev == null) {
                 continue;
             }
+            GeoPoint p = geoFromDevice(dev);
+            if (p != null) {
+                points.add(p);
+            }
+        }
+        points.sort(Comparator.comparing(GeoPoint::getLongitude, Comparator.nullsLast(Double::compareTo)));
+        return points;
+    }
+
+    private GeoPoint geoFromDevice(UavInspectionDevice dev) {
+        if (dev.getLongitude() != null && dev.getLatitude() != null) {
             GeoPoint p = new GeoPoint();
             p.setLongitude(dev.getLongitude());
             p.setLatitude(dev.getLatitude());
             p.setHeight(dev.getHeight() != null ? dev.getHeight() : 0.0);
-            points.add(p);
+            return p;
         }
-        points.sort(Comparator.comparing(GeoPoint::getLongitude, Comparator.nullsLast(Double::compareTo)));
-        return points;
+        if (dev.getDeviceName() != null) {
+            Matcher m = PATROL_TOWER_NAME.matcher(dev.getDeviceName().trim());
+            if (m.find()) {
+                return PatrolSceneGeometry.towerPhotoPoint(Integer.parseInt(m.group(1)));
+            }
+        }
+        return null;
     }
 
     private static double haversineM(double lon1, double lat1, double lon2, double lat2) {

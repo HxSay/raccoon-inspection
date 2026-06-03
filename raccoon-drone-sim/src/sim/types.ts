@@ -110,6 +110,17 @@ export interface TelemetryPayload {
 /** 部署模式 */
 export type DeployMode = 'groundStation' | 'onboard'
 
+/** 巡检中检出的异常（用于云端故障分级） */
+export interface MissionAnomalyEvent {
+  faultType: string
+  towerIndex?: number
+  waypointIndex?: number
+  confidence?: number
+  description?: string
+  photoId?: string
+  aiLabel?: string
+}
+
 /** 任务完成报告（弹窗展示） */
 export interface MissionReport {
   startedAt: number
@@ -120,6 +131,8 @@ export interface MissionReport {
   aiResults: AiDefectResult[]
   /** 边缘采集的多模态巡检采样（可见光/热成像/声音/振动/温度） */
   multimodalSamples: MultimodalSample[]
+  /** 需触发故障分级处理的异常列表 */
+  anomalyEvents?: MissionAnomalyEvent[]
   telemetrySent: number
   bufferedWhileOffline: number
   /** 任务结束后上报 iot-data 的结果 */

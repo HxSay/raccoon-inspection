@@ -10,6 +10,8 @@ import {
   type FaultHandleResult
 } from '@/api/faultHandle'
 import { fieldSceneDeviceByMap } from '@/api/fieldSceneDevice'
+import type { UavRouteDispatchPayload } from '@/api/drone'
+import { broadcastDispatchToSim } from '@/utils/inspectionBridge'
 
 const LEVEL_TAG: Record<string, string> = {
   GENERAL: 'info',
@@ -23,13 +25,31 @@ const form = reactive({
   mapId: 1 as number | undefined,
   faultType: 'VISUAL_DEFECT',
   confidence: 0.82,
-  description: ''
+  description: '',
+  /** 仅手动演示时开启；默认走 5 分钟去重 */
+  skipDedupe: false
 })
 
 const submitting = ref(false)
 const lastResult = ref<FaultHandleResult | null>(null)
 const audits = ref<FaultAuditVO[]>([])
 const devices = ref<{ id: number; deviceName?: string }[]>([])
+
+const parseExpandCount = (row: FaultAuditVO & { detailJson?: string }) => {
+  if (!row.detailJson) return '—'
+  try {
+    const d = JSON.parse(row.detailJson) as {
+      dispatch?: { expandedDeviceCount?: number }
+      expandedScope?: { relatedDeviceIds?: number[] }
+    }
+    const n = d.dispatch?.expandedDeviceCount
+    if (n != null) return String(n)
+    const rel = d.expandedScope?.relatedDeviceIds?.length ?? 0
+    return rel > 0 ? String(rel + 1) : '—'
+  } catch {
+    return '—'
+  }
+}
 
 const faultTypeOptions = [
   { value: 'VISUAL_DEFECT', label: '可见光缺陷' },
@@ -51,6 +71,20 @@ const loadDevices = async () => {
   } catch {
     devices.value = []
   }
+}
+
+const dispatchReinspectToSim = () => {
+  const payload = lastResult.value?.dispatch?.routePayload as UavRouteDispatchPayload | undefined
+  if (!payload?.waypoints?.length && !payload?.photoWaypoints?.length) {
+    ElMessage.warning('最近处置结果无仿真航线，请重新上报火情或确认 drone 已重启')
+    return
+  }
+  broadcastDispatchToSim(payload, {
+    autoStart: true,
+    userInput: '故障分级页手动下发扩范围复巡',
+    dispatchTaskId: lastResult.value?.dispatch?.reinspectTaskId
+  })
+  ElMessage.success('已通过广播向仿真页下发扩范围复巡（请确保仿真页已打开）')
 }
 
 const loadAudits = async () => {
@@ -76,13 +110,22 @@ const submitIngest = async () => {
       faultType: form.faultType,
       confidence: form.confidence,
       description: form.description || undefined,
-      extData:
-        form.faultType === 'TEMP_ABNORMAL'
-          ? { maxTemp: 125 }
-          : undefined
+      skipDedupe: form.skipDedupe,
+      extData: {
+        simulation: form.skipDedupe,
+        ...(form.faultType === 'TEMP_ABNORMAL' ? { maxTemp: 125 } : {})
+      }
     })
     lastResult.value = res.data
     ElMessage.success(res.data?.message || '已提交分级处理')
+    if (res.data?.dispatch?.routePayload) {
+      broadcastDispatchToSim(res.data.dispatch.routePayload, {
+        autoStart: true,
+        userInput: '故障上报自动扩范围复巡',
+        dispatchTaskId: res.data.dispatch.reinspectTaskId
+      })
+      ElMessage.info('已向仿真页广播扩范围复巡航线')
+    }
     await loadAudits()
   } catch (e: any) {
     ElMessage.error(e?.message || '提交失败')
@@ -164,6 +207,9 @@ onMounted(async () => {
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" placeholder="异常现象描述" />
         </el-form-item>
+        <el-form-item label="演示模式">
+          <el-switch v-model="form.skipDedupe" active-text="跳过去重（仅调试）" inactive-text="5 分钟内同异常不重复（默认）" />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="submitting" @click="submitIngest">上报并分级处置</el-button>
           <el-button :loading="submitting" @click="testOffline">模拟终端离线</el-button>
@@ -186,7 +232,23 @@ onMounted(async () => {
             </el-descriptions-item>
             <el-descriptions-item label="处置动作">{{ lastResult.plan?.action }}</el-descriptions-item>
             <el-descriptions-item label="复巡任务">{{ lastResult.dispatch?.reinspectTaskId }}</el-descriptions-item>
+            <el-descriptions-item label="扩范围设备数">
+              {{ lastResult.dispatch?.expandedDeviceCount ?? '—' }}
+            </el-descriptions-item>
             <el-descriptions-item label="分配终端">{{ lastResult.dispatch?.assignedTerminalId }}</el-descriptions-item>
+            <el-descriptions-item label="仿真航线">
+              <el-tag v-if="lastResult.dispatch?.routePayload" type="success" size="small">已生成</el-tag>
+              <el-tag v-else type="info" size="small">无</el-tag>
+              <el-button
+                v-if="lastResult.dispatch?.routePayload"
+                link
+                type="primary"
+                style="margin-left: 8px"
+                @click="dispatchReinspectToSim"
+              >
+                下发仿真复巡
+              </el-button>
+            </el-descriptions-item>
             <el-descriptions-item label="说明">{{ lastResult.message }}</el-descriptions-item>
           </el-descriptions>
         </el-card>
@@ -197,8 +259,8 @@ onMounted(async () => {
           <ul class="hint-list">
             <li>一般（GENERAL）：24h 内计划复巡，不扩范围</li>
             <li>严重（SERIOUS）：15 分钟内复巡，Neo4j 扩 2 层关联设备</li>
-            <li>紧急（CRITICAL）：3 分钟内应急核查，扩 500m 并暂停非必要任务</li>
-            <li>同设备同类型 5 分钟内重复上报将自动合并</li>
+            <li>紧急（CRITICAL）：3 分钟内应急核查，输电火情扩至全线 5 基杆塔并自动下发仿真复巡</li>
+            <li>生产环境：同设备同类型 5 分钟内重复上报将自动合并；演示模式请开启「跳过去重」</li>
           </ul>
         </el-card>
       </el-col>
@@ -219,6 +281,11 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="responseAction" label="动作" width="160" />
         <el-table-column prop="reinspectTaskId" label="复巡任务" min-width="140" show-overflow-tooltip />
+        <el-table-column label="扩范围" width="72">
+          <template #default="{ row }">
+            {{ parseExpandCount(row) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="handleResult" label="结果" width="90" />
       </el-table>
     </el-card>

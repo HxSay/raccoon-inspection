@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -22,7 +23,12 @@ public class NlpTaskParseController {
     private NlpTaskParseFacadeService nlpTaskParseFacadeService;
 
     @PostMapping
-    public HxResult<NlpTaskParseResponse> parse(@Valid @RequestBody NlpTaskParseRequest request) {
+    public HxResult<NlpTaskParseResponse> parse(
+            @Valid @RequestBody NlpTaskParseRequest request,
+            @RequestParam(required = false, defaultValue = "false") boolean ruleOnly) {
+        if (ruleOnly) {
+            return HxResult.success(nlpTaskParseFacadeService.parseRuleOnly(request.getUserInput()));
+        }
         return HxResult.success(nlpTaskParseFacadeService.parse(request.getUserInput()));
     }
 }

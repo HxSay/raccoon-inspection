@@ -67,15 +67,21 @@ import {
 import {
   reportRobotBattery1Hz,
   reportRobotLoad1Hz,
-  reportRobotPosition10Hz
+  reportRobotPosition10Hz,
+  reportRobotPresenceHeartbeat
 } from '@/api/inspectionRobotTelemetry'
 import { attachRobotLabel, type RobotLabelHandle } from '@/sim/robotLabelMarkers'
+import { listFireEnabledTowers, setTowerFireSimulation } from '@/sim/sceneHazard'
+import { syncTowerFireVisuals, tickTowerFireVisuals } from '@/sim/towerFireVisual'
 import {
+  INSPECTION_DISPATCH_CHANNEL,
+  MSG_INSPECTION_ANOMALY,
   MSG_INSPECTION_DISPATCH,
   MSG_INSPECTION_DISPATCH_ACK,
   MSG_INSPECTION_MISSION_COMPLETE,
   MSG_INSPECTION_MISSION_ERROR,
   MSG_INSPECTION_STATUS,
+  type InspectionAnomalyPayload,
   type InspectionDispatchMessage
 } from '@/types/inspectionBridge'
 
@@ -87,6 +93,19 @@ const deployMode = ref<DeployMode>('groundStation')
 const simulateDisconnect = ref(false)
 const simulateLowBattery = ref(false)
 const simulateRtkLost = ref(false)
+/** 杆塔 1~5 火情模拟（场景效果 → 巡检上报 → 故障分级） */
+const fireTowerFlags = ref([false, false, false, false, false])
+
+watch(
+  fireTowerFlags,
+  (flags) => {
+    flags.forEach((on, i) => setTowerFireSimulation(i + 1, on))
+    if (sceneBundle?.world) {
+      syncTowerFireVisuals(sceneBundle.world, listFireEnabledTowers())
+    }
+  },
+  { deep: true }
+)
 
 const batteryPercent = ref(96)
 const taskStatus = ref('待命')
@@ -243,7 +262,12 @@ const multimodalTableRows = computed(() => {
 
 function summarizeMultimodalPayload(type: MultimodalModalityType, payload: Record<string, unknown>): string {
   if (type === 'TEMPERATURE') {
-    return `${payload.ambientC}~${payload.maxC} °C`
+    const max = payload.maxC as number | undefined
+    const suffix = max != null && max >= 80 ? '（超温告警）' : ''
+    return `${payload.ambientC}~${payload.maxC} °C${suffix}`
+  }
+  if (type === 'THERMAL' && payload.anomaly) {
+    return `热点 ${payload.minC}~${payload.maxC} °C（异常）`
   }
   if (type === 'AUDIO') {
     return `峰值 ${payload.peakDb} dB`
@@ -585,7 +609,7 @@ function reportPatrolFleetPresence() {
       missionProgress: 0,
       phase: 'STANDBY'
     }
-    reportRobotPosition10Hz(uavId, telem, online, fault)
+    reportRobotPresenceHeartbeat(uavId, telem, online, fault)
     const enduranceMin = Math.max(1, Math.round((telem.batteryPercent / 12) * 10))
     reportRobotBattery1Hz(uavId, telem.batteryPercent, enduranceMin)
   })
@@ -600,6 +624,10 @@ function notifyParent(payload: Record<string, unknown>) {
 function onStatus(s: string) {
   taskStatus.value = s
   notifyParent({ type: MSG_INSPECTION_STATUS, status: s })
+}
+
+function notifyInspectionAnomaly(ev: InspectionAnomalyPayload) {
+  notifyParent({ type: MSG_INSPECTION_ANOMALY, anomaly: ev })
 }
 
 function onPhoto() {
@@ -754,6 +782,16 @@ function rebuildMissionRunner() {
           onPhoto: (_p, _ai) => {
             onPhoto()
           },
+          onAnomaly: (ev) => {
+            notifyInspectionAnomaly({
+              faultType: ev.faultType,
+              towerIndex: ev.towerIndex,
+              waypointIndex: ev.waypointIndex,
+              confidence: ev.confidence,
+              description: ev.description,
+              aiLabel: ev.aiLabel
+            })
+          },
           onComplete: onPatrolFleetComplete,
           onError,
           fetchPlannedPath: async (dep) => {
@@ -810,6 +848,16 @@ function rebuildMissionRunner() {
         },
         onPhoto: (_p, _ai) => {
           onPhoto()
+        },
+        onAnomaly: (ev) => {
+          notifyInspectionAnomaly({
+            faultType: ev.faultType,
+            towerIndex: ev.towerIndex,
+            waypointIndex: ev.waypointIndex,
+            confidence: ev.confidence,
+            description: ev.description,
+            aiLabel: ev.aiLabel
+          })
         },
         onComplete,
         onError,
@@ -945,6 +993,7 @@ function initThree(): () => void {
 
   sceneBundle = createPowerlineScene(renderer)
   const { scene, world, homePosition, terminalPosition, corridorHomes, dispose: disposeScene } = sceneBundle
+  syncTowerFireVisuals(world, listFireEnabledTowers())
 
   const laneN = corridorHomes.length
   stateReports = Array.from({ length: laneN }, () => new StateReportService())
@@ -1065,8 +1114,9 @@ function initThree(): () => void {
     rafMain = requestAnimationFrame(tick)
     const dt = clock.getDelta()
     nest?.tick(dt)
+    tickTowerFireVisuals(dt)
     edgeMetrics.value = edgeSim.tick(dt)
-    if (sceneTab.value === 'patrol' && patrolFleetUavIds.length) {
+    if (sceneTab.value === 'patrol' && patrolFleetUavIds.length && !inspectionInFlight.value) {
       reportPatrolFleetPresence()
       if (inspectionInFlight.value) {
         patrolFleetUavIds.forEach((uavId, i) => {
@@ -1279,6 +1329,9 @@ async function applyDispatchFromParent(
   dispatch: UavRouteDispatchPayload,
   options?: { autoStart?: boolean; userInput?: string; recommendedFleet?: number }
 ) {
+  if (inspectionInFlight.value) {
+    resetMission()
+  }
   await waitForPatrolSceneReady()
   activeMissionMeta.value = {
     uavId: dispatch.uavId,
@@ -1341,6 +1394,7 @@ function handleParentMessage(ev: MessageEvent) {
 }
 
 let fieldDeviceChannel: BroadcastChannel | null = null
+let inspectionDispatchChannel: BroadcastChannel | null = null
 
 onMounted(() => {
   disposeThree = initThree()
@@ -1351,9 +1405,28 @@ onMounted(() => {
   } catch {
     fieldDeviceChannel = null
   }
+  try {
+    inspectionDispatchChannel = new BroadcastChannel(INSPECTION_DISPATCH_CHANNEL)
+    inspectionDispatchChannel.onmessage = (ev: MessageEvent<InspectionDispatchMessage>) => {
+      const data = ev.data
+      if (!data || data.type !== MSG_INSPECTION_DISPATCH || !data.dispatch) return
+      void applyDispatchFromParent(data.dispatch, {
+        autoStart: data.autoStart,
+        userInput: data.userInput,
+        recommendedFleet: data.recommendedFleet
+      }).catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        ElMessage.error(`扩范围复巡下发失败: ${msg}`)
+      })
+    }
+  } catch {
+    inspectionDispatchChannel = null
+  }
 })
 
 onBeforeUnmount(() => {
+  inspectionDispatchChannel?.close()
+  inspectionDispatchChannel = null
   fieldDeviceChannel?.close()
   fieldDeviceChannel = null
   window.removeEventListener('message', handleParentMessage)
@@ -1598,6 +1671,7 @@ function try65535Demo() {
           v-model:simulate-disconnect="simulateDisconnect"
           v-model:simulate-low-battery="simulateLowBattery"
           v-model:simulate-rtk-lost="simulateRtkLost"
+          v-model:fire-tower-flags="fireTowerFlags"
           v-model:route-fetch-uav-id="routeFetchUavId"
           v-model:route-fetch-plan-id="routeFetchPlanId"
           :edge-metrics="edgeMetrics"

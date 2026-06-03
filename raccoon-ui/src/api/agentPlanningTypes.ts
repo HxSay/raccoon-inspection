@@ -26,4 +26,12 @@ export interface SimulationMissionReport {
     payload?: Record<string, unknown>
     previewDataUrl?: string
   }>
+  anomalyEvents?: Array<{
+    faultType?: string
+    towerIndex?: number
+    waypointIndex?: number
+    confidence?: number
+    description?: string
+    photoId?: string
+  }>
 }

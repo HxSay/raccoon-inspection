@@ -70,6 +70,7 @@ export function slimMissionReport(report: {
       modalityType: s.modalityType,
       payload: s.payload,
       previewDataUrl: trimUrl(s.previewDataUrl)
-    }))
+    })),
+    anomalyEvents: report.anomalyEvents
   }
 }

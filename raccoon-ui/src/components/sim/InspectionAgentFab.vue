@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import { dispatchTaskGenerate } from '@/api/droneDispatch'
 import { nlpTaskParse, type NlpTaskParseResponse } from '@/api/droneNlp'
 import { planningEndToEnd } from '@/api/planningE2e'
@@ -10,6 +10,8 @@ import {
   completeAgentSimulation
 } from '@/api/agentPlanning'
 import type { SimulationMissionReport } from '@/api/agentPlanningTypes'
+import { faultIngest } from '@/api/faultHandle'
+import { fieldSceneDeviceByMap } from '@/api/fieldSceneDevice'
 import type { UavRouteDispatchPayload } from '@/api/drone'
 
 function countPhotoWaypoints(d: UavRouteDispatchPayload | null | undefined): number {
@@ -25,14 +27,18 @@ function isInspectAllTowersIntent(text: string): boolean {
 }
 import ChatBubble from '@/components/rag/ChatBubble.vue'
 import {
+  broadcastDispatchToSim,
   formatTaskSummary,
   inspectionTaskToDispatch,
+  MSG_INSPECTION_ANOMALY,
   MSG_INSPECTION_DISPATCH_ACK,
   MSG_INSPECTION_MISSION_COMPLETE,
   MSG_INSPECTION_MISSION_ERROR,
   MSG_INSPECTION_STATUS,
+  type InspectionAnomalyPayload,
   postDispatchToSimIframe
 } from '@/utils/inspectionBridge'
+import type { UavRouteDispatchPayload } from '@/api/drone'
 
 const props = defineProps<{
   /** 仿真 iframe，用于 postMessage 下发航线 */
@@ -76,6 +82,8 @@ const togglePanel = () => {
 const clearChat = () => {
   messages.value = []
   missionRunning.value = false
+  faultIngestedKeys.clear()
+  faultDedupeUntil.clear()
 }
 
 function bindActiveWorkOrder(workOrderId?: number | null, dispatchTaskId?: string | null) {
@@ -85,6 +93,220 @@ function bindActiveWorkOrder(workOrderId?: number | null, dispatchTaskId?: strin
   if (dispatchTaskId) {
     sessionStorage.setItem(AGENT_ACTIVE_DISPATCH_TASK_KEY, dispatchTaskId)
   }
+}
+
+let towerDeviceIdCache: Map<number, number> | null = null
+/** 5 分钟内同设备/杆塔火情不重复上报与复巡（与后端去重一致） */
+const FAULT_DEDUPE_MS = 5 * 60 * 1000
+const faultDedupeUntil = new Map<string, number>()
+/** 本架次已处理过的键，避免任务结束再次 ingest */
+const faultIngestedKeys = new Set<string>()
+
+function isFaultDeduped(key: string): boolean {
+  const until = faultDedupeUntil.get(key)
+  if (until != null && Date.now() < until) return true
+  if (until != null) faultDedupeUntil.delete(key)
+  return false
+}
+
+function markFaultDeduped(key: string) {
+  faultDedupeUntil.set(key, Date.now() + FAULT_DEDUPE_MS)
+}
+
+function faultEventKey(ev: {
+  faultType?: string
+  towerIndex?: number
+  photoId?: string
+}): string {
+  return `${ev.faultType ?? 'FIRE'}-${ev.towerIndex ?? ev.photoId ?? ''}`
+}
+
+function isFireRelatedLabel(label?: string): boolean {
+  if (!label) return false
+  const t = label.toUpperCase()
+  return label.includes('火') || t.includes('FIRE') || label.includes('烟火') || label.includes('明火')
+}
+
+function dispatchReinspectRoute(
+  routePayload: UavRouteDispatchPayload | undefined,
+  dedupeKey: string,
+  reinspectTaskId?: string,
+  deviceCount?: number
+): boolean {
+  if (!routePayload?.photoWaypoints?.length && !routePayload?.waypoints?.length) {
+    return false
+  }
+  const routeKey = `reinspect-route-${dedupeKey}`
+  if (isFaultDeduped(routeKey)) return false
+  const opts = {
+    autoStart: true,
+    userInput: `故障扩范围应急复巡（${deviceCount ?? '?'} 个设备）`,
+    dispatchTaskId: reinspectTaskId
+  }
+  let posted = false
+  if (props.simIframe?.contentWindow) {
+    posted = postDispatchToSimIframe(props.simIframe, routePayload, opts)
+  } else {
+    broadcastDispatchToSim(routePayload, opts)
+    posted = true
+  }
+  if (posted) markFaultDeduped(routeKey)
+  return posted
+}
+
+async function resolveTowerDeviceId(towerIndex: number, mapId = 1): Promise<number | undefined> {
+  try {
+    if (!towerDeviceIdCache) {
+      const res: any = await fieldSceneDeviceByMap(mapId)
+      const list = res.data ?? []
+      towerDeviceIdCache = new Map()
+      for (const d of list) {
+        const name = (d.deviceName || '').trim()
+        const m = name.match(/杆塔\s*(\d+)/)
+        if (m) towerDeviceIdCache.set(Number(m[1]), d.id)
+      }
+    }
+    return towerDeviceIdCache.get(towerIndex)
+  } catch {
+    return towerIndex
+  }
+}
+
+async function ingestFaultEvent(
+  ev: InspectionAnomalyPayload & { photoId?: string },
+  opts?: { urgent?: boolean; skipIfIngested?: boolean }
+): Promise<boolean> {
+  const key = faultEventKey(ev)
+  if (isFaultDeduped(key)) return false
+  if (opts?.skipIfIngested !== false && faultIngestedKeys.has(key)) return false
+  markFaultDeduped(key)
+  faultIngestedKeys.add(key)
+
+  const mapId = 1
+  const towerIndex = ev.towerIndex
+  const deviceId =
+    towerIndex != null ? await resolveTowerDeviceId(towerIndex, mapId) : undefined
+  const label = ev.aiLabel
+  const pct = ev.confidence != null ? `${(ev.confidence * 100).toFixed(1)}%` : '—'
+
+  if (opts?.urgent) {
+    ElNotification({
+      title: '紧急：巡检发现火情',
+      message: `杆塔${towerIndex ?? '?'} · ${label ?? '火焰/烟火'}（置信度 ${pct}），已通知调度并触发扩范围复巡。`,
+      type: 'error',
+      duration: 0,
+      position: 'top-right'
+    })
+    pushAssistant(
+      `【紧急】航点 #${ev.waypointIndex ?? '?'} 检出 ${label ?? '火情'}（${pct}），正在上报管理人员并插单复巡…`
+    )
+  }
+
+  try {
+    const fr: any = await faultIngest({
+      deviceId,
+      mapId,
+      faultType: ev.faultType || 'FIRE',
+      confidence: ev.confidence ?? 0.9,
+      description: ev.description || `仿真巡检检出火情：${label ?? '火焰/烟火'}`
+    })
+    const body = fr?.data as {
+      status?: string
+      level?: string
+      eventId?: string
+      message?: string
+      dispatch?: {
+        success?: boolean
+        reinspectTaskId?: string
+        routePayload?: UavRouteDispatchPayload
+        expandedDeviceCount?: number
+      }
+      plan?: { expandScope?: boolean; action?: string }
+      expandedScope?: { relatedDeviceIds?: number[] }
+    } | undefined
+    if (body?.status === 'MERGED') {
+      if (opts?.urgent) {
+        pushAssistant(body?.message || '5分钟内同设备同类型火情已处理，不重复触发复巡。')
+      }
+      return false
+    }
+    const level = body?.level
+    const ok = body?.dispatch?.success
+    const devN =
+      body?.dispatch?.expandedDeviceCount ??
+      (body?.expandedScope?.relatedDeviceIds?.length ?? 0) + 1
+    const expand = body?.plan?.expandScope ? `已扩范围（${devN} 个设备）` : ''
+    const lines = [
+      `故障分级：${level ?? '—'}（事件 ${body?.eventId?.slice(0, 8) ?? '—'}…）${expand ? `，${expand}` : ''}`,
+      ok
+        ? `已插单应急复巡 ${body?.dispatch?.reinspectTaskId ?? ''}（动作 ${body?.plan?.action ?? 'EMERGENCY_SWEEP'}）`
+        : body?.message || '复巡插单未完全成功，可在「故障分级处理」页查看审计'
+    ]
+    if (ok && body?.dispatch?.routePayload) {
+      const flew = dispatchReinspectRoute(
+        body.dispatch.routePayload,
+        key,
+        body.dispatch.reinspectTaskId,
+        body.dispatch.expandedDeviceCount
+      )
+      lines.push(
+        flew
+          ? '已向仿真无人机自动下发扩范围复巡航线并起飞。'
+          : '航线已生成；请打开仿真页或刷新后，在故障分级页点击「下发仿真复巡」。'
+      )
+      if (flew) {
+        missionRunning.value = true
+        ElMessage.warning('检测到火情：已中断当前任务并启动扩范围应急复巡')
+      }
+    } else if (ok) {
+      lines.push('（未返回仿真航线，请确认 drone 服务已重启）')
+    }
+    pushAssistant(lines.join('\n'), !ok)
+    if (!ok) {
+      faultDedupeUntil.delete(key)
+      faultIngestedKeys.delete(key)
+    }
+    return true
+  } catch (e: unknown) {
+    faultDedupeUntil.delete(key)
+    faultIngestedKeys.delete(key)
+    const msg = e instanceof Error ? e.message : String(e)
+    pushAssistant(`故障分级上报失败：${msg}（请确认 drone 服务 8091 已启动）`, true)
+    if (opts?.urgent) {
+      ElMessage.error(`火情上报失败：${msg}`)
+    }
+    return false
+  }
+}
+
+async function triggerFaultGradingFromReport(missionReport?: SimulationMissionReport) {
+  const events = missionReport?.anomalyEvents ?? []
+  const photoWp = new Map(
+    (missionReport?.photos ?? []).map((p) => [p.id, p.waypointIndex] as const)
+  )
+  const fromAi =
+    missionReport?.aiResults
+      ?.filter((a) => a.hasDefect && isFireRelatedLabel(a.label))
+      .map((a) => {
+        const wp = a.photoId ? photoWp.get(a.photoId) : undefined
+        return {
+          faultType: 'FIRE' as const,
+          confidence: a.confidence,
+          description: `AI 检出：${a.label}`,
+          photoId: a.photoId,
+          waypointIndex: wp,
+          aiLabel: a.label
+        }
+      }) ?? []
+  const merged: Array<InspectionAnomalyPayload & { photoId?: string }> = [...events, ...fromAi]
+  if (!merged.length) return
+  for (const ev of merged) {
+    await ingestFaultEvent(ev, { urgent: false, skipIfIngested: true })
+  }
+}
+
+async function handleInspectionAnomaly(anomaly: InspectionAnomalyPayload) {
+  await ingestFaultEvent(anomaly, { urgent: true, skipIfIngested: true })
 }
 
 async function syncWorkOrderAfterSimulation(missionReport?: SimulationMissionReport) {
@@ -117,12 +339,20 @@ function onSimMessage(ev: MessageEvent) {
     return
   }
 
+  if (data.type === MSG_INSPECTION_ANOMALY) {
+    const anomaly = (data as { anomaly?: InspectionAnomalyPayload }).anomaly
+    if (anomaly) void handleInspectionAnomaly(anomaly)
+    return
+  }
+
   if (data.type === MSG_INSPECTION_STATUS && data.status) {
     if (
       data.status.includes('自主巡检') ||
       data.status.includes('拍照') ||
       data.status.includes('返航') ||
-      data.status.includes('上报')
+      data.status.includes('上报') ||
+      data.status.includes('火情') ||
+      data.status.includes('【紧急】')
     ) {
       pushAssistant(`[状态] ${data.status}`, false)
     }
@@ -131,6 +361,7 @@ function onSimMessage(ev: MessageEvent) {
 
   if (data.type === MSG_INSPECTION_MISSION_COMPLETE && data.summary) {
     missionRunning.value = false
+    faultIngestedKeys.clear()
     const payload = data as { summary?: Record<string, unknown>; missionReport?: SimulationMissionReport }
     const s = payload.summary as {
       durationSec?: number
@@ -155,6 +386,7 @@ function onSimMessage(ev: MessageEvent) {
       ].join('\n')
     )
     void syncWorkOrderAfterSimulation(payload.missionReport)
+    void triggerFaultGradingFromReport(payload.missionReport)
     return
   }
 
@@ -241,38 +473,54 @@ const sendMessage = async () => {
     let dispatchPayload: UavRouteDispatchPayload | null = null
     let summaryLines: string[] = []
     let parseSource = ''
+    const simQuickPath = !!props.simIframe
 
-    // 1) 调度中枢：自动分派终端 + 全局路径规划
-    try {
-      const hubRes: any = await dispatchTaskGenerate({
-        userInput: text,
-        enableSimulation: true,
-        autoDispatch: true
-      })
-      const hub = hubRes.data
-      if (hub?.assigned && hub?.workOrder?.payload) {
-        dispatchPayload = hub.workOrder.payload
-        parseSource = '调度中枢'
-        summaryLines = [
-          `任务：${hub.taskId ?? '—'}`,
-          `分派终端：${hub.assignedTerminalName ?? hub.assignedTerminalId ?? '—'}`,
-          hub.bidPrice != null ? `竞拍价：${hub.bidPrice.toFixed(3)}` : '',
-          hub.priority ? `优先级：${hub.priority}` : '',
-          hub.pathPlan?.distanceM != null
-            ? `航程：${hub.pathPlan.distanceM.toFixed(1)} m / ${hub.pathPlan.durationSec ?? '—'} s`
-            : ''
-        ].filter(Boolean) as string[]
-      } else if (hub?.message && hub.message !== 'OK') {
-        summaryLines.push(`调度提示：${hub.message}`)
+    // 仿真 Agent：跳过调度中枢（含 LLM+拍卖，易超过 30s），直接规则 NLP 快速下发
+    if (!simQuickPath) {
+      try {
+        const hubRes: any = await dispatchTaskGenerate({
+          userInput: text,
+          enableSimulation: true,
+          autoDispatch: true
+        })
+        const hub = hubRes.data
+        if (hub?.assigned && hub?.workOrder?.payload) {
+          dispatchPayload = hub.workOrder.payload
+          parseSource = '调度中枢'
+          summaryLines = [
+            `任务：${hub.taskId ?? '—'}`,
+            `分派终端：${hub.assignedTerminalName ?? hub.assignedTerminalId ?? '—'}`,
+            hub.bidPrice != null ? `竞拍价：${hub.bidPrice.toFixed(3)}` : '',
+            hub.priority ? `优先级：${hub.priority}` : '',
+            hub.pathPlan?.distanceM != null
+              ? `航程：${hub.pathPlan.distanceM.toFixed(1)} m / ${hub.pathPlan.durationSec ?? '—'} s`
+              : ''
+          ].filter(Boolean) as string[]
+        } else if (hub?.message && hub.message !== 'OK') {
+          summaryLines.push(`调度提示：${hub.message}`)
+        }
+      } catch (hubErr: unknown) {
+        const msg = hubErr instanceof Error ? hubErr.message : String(hubErr)
+        summaryLines.push(`调度中枢暂不可用（${msg}），将使用 NLP 解析…`)
       }
-    } catch (hubErr: unknown) {
-      const msg = hubErr instanceof Error ? hubErr.message : String(hubErr)
-      summaryLines.push(`调度中枢暂不可用（${msg}），将使用 NLP 解析…`)
     }
 
-    // 2) NLP 解析兜底（含「所有杆塔」自动展开）
-    const res: any = await nlpTaskParse(text)
-    const data = res.data as NlpTaskParseResponse
+    const allTowers = isInspectAllTowersIntent(text)
+    const hubPhotos = countPhotoWaypoints(dispatchPayload)
+    const needNlp =
+      simQuickPath ||
+      !dispatchPayload ||
+      hubPhotos < 1 ||
+      allTowers
+
+    let data: NlpTaskParseResponse | undefined
+    if (needNlp) {
+      const res: any = await nlpTaskParse(text, {
+        ruleOnly: simQuickPath,
+        timeoutMs: simQuickPath ? 15000 : 65000
+      })
+      data = res.data as NlpTaskParseResponse
+    }
 
     if (data?.needFollowUp) {
       assistantMsg.content = data.followUpQuestion ?? '请补充巡检区域与设备信息。'
@@ -287,8 +535,6 @@ const sendMessage = async () => {
 
     const nlpDispatch = data?.task ? inspectionTaskToDispatch(data.task) : null
 
-    const allTowers = isInspectAllTowersIntent(text)
-    const hubPhotos = countPhotoWaypoints(dispatchPayload)
     const nlpPhotos = countPhotoWaypoints(nlpDispatch)
     const preferNlp =
       nlpDispatch &&

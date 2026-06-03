@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import type { UavRouteDispatchPayload } from '@/api/drone'
 
 export interface FaultEventReport {
   deviceId?: number
@@ -9,6 +10,8 @@ export interface FaultEventReport {
   description?: string
   dataUrl?: string
   extData?: Record<string, unknown>
+  /** 仿真演示：true 时不做 5 分钟同设备同类型合并 */
+  skipDedupe?: boolean
 }
 
 export interface FaultHandleResult {
@@ -27,6 +30,12 @@ export interface FaultHandleResult {
     reinspectTaskId?: string
     assignedTerminalId?: number
     message?: string
+    routePayload?: UavRouteDispatchPayload
+    expandedDeviceCount?: number
+  }
+  expandedScope?: {
+    primaryDeviceId?: number
+    relatedDeviceIds?: number[]
   }
 }
 

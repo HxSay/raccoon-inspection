@@ -118,10 +118,18 @@ function baseSample(
   }
 }
 
+export interface MultimodalCollectOptions {
+  fireHazard?: boolean
+}
+
 /**
  * 在拍照航点采集全套多模态数据（边缘侧模拟）。
  */
-export async function collectMultimodalAtWaypoint(photo: PhotoCaptureMeta): Promise<MultimodalSample[]> {
+export async function collectMultimodalAtWaypoint(
+  photo: PhotoCaptureMeta,
+  options?: MultimodalCollectOptions
+): Promise<MultimodalSample[]> {
+  const fire = options?.fireHazard === true
   const samples: MultimodalSample[] = []
   const alt = photo.gps.altitudeM
 
@@ -137,8 +145,8 @@ export async function collectMultimodalAtWaypoint(photo: PhotoCaptureMeta): Prom
       }, thumb)
     )
     const thermalThumb = await synthesizeThermalPreview(photo.imageDataUrl)
-    const minT = round1(18 + alt * 0.01)
-    const maxT = round1(minT + randomBetween(12, 35))
+    const minT = round1(fire ? 42 + alt * 0.01 : 18 + alt * 0.01)
+    const maxT = round1(fire ? minT + randomBetween(55, 85) : minT + randomBetween(12, 35))
     samples.push(
       baseSample(
         photo,
@@ -148,6 +156,7 @@ export async function collectMultimodalAtWaypoint(photo: PhotoCaptureMeta): Prom
           palette: 'ironbow',
           minC: minT,
           maxC: maxT,
+          anomaly: fire,
           thumbnail: thermalThumb
         },
         thermalThumb
@@ -162,9 +171,17 @@ export async function collectMultimodalAtWaypoint(photo: PhotoCaptureMeta): Prom
     )
   }
 
-  samples.push(baseSample(photo, 'AUDIO', buildAudioPayload()))
+  const audio = buildAudioPayload()
+  if (fire) audio.anomalyScore = randomBetween(75, 95)
+  samples.push(baseSample(photo, 'AUDIO', audio))
   samples.push(baseSample(photo, 'VIBRATION', buildVibrationPayload()))
-  samples.push(baseSample(photo, 'TEMPERATURE', buildTemperaturePayload(alt)))
+  const temp = buildTemperaturePayload(alt)
+  if (fire) {
+    temp.ambientC = round1(45 + alt * 0.02)
+    temp.maxC = round1(120 + randomBetween(5, 25))
+    temp.targetC = round1((temp.ambientC as number + (temp.maxC as number)) / 2)
+  }
+  samples.push(baseSample(photo, 'TEMPERATURE', temp))
 
   return samples
 }

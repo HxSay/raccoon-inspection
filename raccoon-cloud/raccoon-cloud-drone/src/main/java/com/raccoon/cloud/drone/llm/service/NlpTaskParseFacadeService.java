@@ -31,12 +31,30 @@ public class NlpTaskParseFacadeService {
     @Autowired
     private InspectionSlotNormalizer slotNormalizer;
 
+    @Autowired
+    private RuleParseService ruleParseService;
+
+    /**
+     * 仅规则解析（仿真 Agent 快速下发，避免等待本地 LLM 推理）。
+     */
+    public NlpTaskParseResponse parseRuleOnly(String rawUserInput) {
+        String cleaned = llmInputPreprocessService.preprocess(rawUserInput);
+        log.info("NLP 规则快速解析，输入长度={}", cleaned.length());
+        LlmTaskSlotResult slots = ruleParseService.parse(cleaned);
+        slotNormalizer.enrich(cleaned, slots);
+        return buildResponse(slots, cleaned);
+    }
+
     public NlpTaskParseResponse parse(String rawUserInput) {
         String cleaned = llmInputPreprocessService.preprocess(rawUserInput);
         log.info("开始 NLP 任务解析，输入长度={}", cleaned.length());
 
         LlmTaskSlotResult slots = llmTaskParseService.parse(cleaned);
         slotNormalizer.enrich(cleaned, slots);
+        return buildResponse(slots, cleaned);
+    }
+
+    private NlpTaskParseResponse buildResponse(LlmTaskSlotResult slots, String cleaned) {
         CheckResult check = resultCheckAndFillService.checkAndFill(slots, cleaned);
 
         NlpTaskParseResponse response = new NlpTaskParseResponse();
