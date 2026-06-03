@@ -4,6 +4,12 @@ import { ElMessage } from 'element-plus'
 import { dispatchTaskGenerate } from '@/api/droneDispatch'
 import { nlpTaskParse, type NlpTaskParseResponse } from '@/api/droneNlp'
 import { planningEndToEnd } from '@/api/planningE2e'
+import {
+  AGENT_ACTIVE_DISPATCH_TASK_KEY,
+  AGENT_ACTIVE_WORK_ORDER_KEY,
+  completeAgentSimulation
+} from '@/api/agentPlanning'
+import type { SimulationMissionReport } from '@/api/agentPlanningTypes'
 import type { UavRouteDispatchPayload } from '@/api/drone'
 
 function countPhotoWaypoints(d: UavRouteDispatchPayload | null | undefined): number {
@@ -72,6 +78,34 @@ const clearChat = () => {
   missionRunning.value = false
 }
 
+function bindActiveWorkOrder(workOrderId?: number | null, dispatchTaskId?: string | null) {
+  if (workOrderId != null) {
+    sessionStorage.setItem(AGENT_ACTIVE_WORK_ORDER_KEY, String(workOrderId))
+  }
+  if (dispatchTaskId) {
+    sessionStorage.setItem(AGENT_ACTIVE_DISPATCH_TASK_KEY, dispatchTaskId)
+  }
+}
+
+async function syncWorkOrderAfterSimulation(missionReport?: SimulationMissionReport) {
+  const woRaw = sessionStorage.getItem(AGENT_ACTIVE_WORK_ORDER_KEY)
+  const dispatchTaskId = sessionStorage.getItem(AGENT_ACTIVE_DISPATCH_TASK_KEY) || undefined
+  const workOrderId = woRaw ? Number(woRaw) : undefined
+  if (!workOrderId && !dispatchTaskId) return
+  try {
+    await completeAgentSimulation({
+      workOrderId: Number.isFinite(workOrderId) ? workOrderId : undefined,
+      dispatchTaskId,
+      remark: '仿真巡检完成自动回填',
+      missionReport
+    })
+    pushAssistant('CMMS 巡检工单已更新为「已完成」，可在巡检管理 → 巡检工单中查看。')
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    pushAssistant(`工单状态回写失败：${msg}`, true)
+  }
+}
+
 function onSimMessage(ev: MessageEvent) {
   const data = ev.data as { type?: string; status?: string; summary?: Record<string, unknown>; message?: string }
   if (!data?.type) return
@@ -97,7 +131,8 @@ function onSimMessage(ev: MessageEvent) {
 
   if (data.type === MSG_INSPECTION_MISSION_COMPLETE && data.summary) {
     missionRunning.value = false
-    const s = data.summary as {
+    const payload = data as { summary?: Record<string, unknown>; missionReport?: SimulationMissionReport }
+    const s = payload.summary as {
       durationSec?: number
       distanceM?: number
       photoCount?: number
@@ -110,14 +145,16 @@ function onSimMessage(ev: MessageEvent) {
       : s.multimodalError
         ? `多模态上报：${s.multimodalError}`
         : '多模态上报未执行。'
+    const mmCount = payload.missionReport?.multimodalSamples?.length ?? 0
     pushAssistant(
       [
         '巡检任务已完成。',
         `飞行 ${s.durationSec?.toFixed(0) ?? '—'} s，航程 ${s.distanceM?.toFixed(1) ?? '—'} m。`,
-        `拍照 ${s.photoCount ?? 0} 次，遥测上报 ${s.telemetrySent ?? 0} 条。`,
+        `拍照 ${s.photoCount ?? 0} 次，多模态采样 ${mmCount} 条，遥测 ${s.telemetrySent ?? 0} 条。`,
         uploadLine
       ].join('\n')
     )
+    void syncWorkOrderAfterSimulation(payload.missionReport)
     return
   }
 
@@ -185,6 +222,7 @@ const sendMessage = async () => {
         assistantMsg.error = assistantMsg.content
         return
       }
+      bindActiveWorkOrder(e2e.workOrderId, e2e.dispatchTaskId)
       assistantMsg.content = [
         '已生成待审核巡检工单：',
         `工单号 ${e2e.orderNo ?? '—'}`,
@@ -192,7 +230,7 @@ const sendMessage = async () => {
         `分配终端 ${e2e.assignedTerminalName ?? e2e.assignedTerminalId ?? '—'}`,
         e2e.assignReason ? `分配理由：${e2e.assignReason}` : '',
         e2e.auditDeadline ? `审核截止：${e2e.auditDeadline}` : '',
-        '请管理员在「工单审核」页面通过或驳回。'
+        '请管理员在「巡检管理 → 工单审核」页面通过或驳回。'
       ]
         .filter(Boolean)
         .join('\n')
@@ -295,7 +333,11 @@ const sendMessage = async () => {
     const posted = postDispatchToSimIframe(props.simIframe, dispatchPayload!, {
       autoStart: true,
       userInput: text,
-      recommendedFleet: recommendedFleet && recommendedFleet >= 1 ? recommendedFleet : undefined
+      recommendedFleet: recommendedFleet && recommendedFleet >= 1 ? recommendedFleet : undefined,
+      workOrderId: sessionStorage.getItem(AGENT_ACTIVE_WORK_ORDER_KEY)
+        ? Number(sessionStorage.getItem(AGENT_ACTIVE_WORK_ORDER_KEY))
+        : undefined,
+      dispatchTaskId: sessionStorage.getItem(AGENT_ACTIVE_DISPATCH_TASK_KEY) || undefined
     })
     if (!posted) {
       assistantMsg.content += '\n\n下发失败：无法访问仿真窗口。'

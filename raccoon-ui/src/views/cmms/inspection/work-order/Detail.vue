@@ -40,6 +40,24 @@ const typeLabel: Record<string, string> = {
   collect: '采集',
   report: '上报'
 }
+
+const statusLabel: Record<number, string> = {
+  1: '待下发',
+  2: '待执行',
+  3: '执行中',
+  4: '已完成',
+  5: '已取消',
+  6: '待审核',
+  7: '审核驳回'
+}
+
+const reportStep = computed(() => detail.value?.steps?.find((s) => s.type === 'report'))
+
+const droneReportSummary = computed(() => {
+  const step = reportStep.value
+  if (!step?.description) return ''
+  return step.description
+})
 </script>
 
 <template>
@@ -49,7 +67,7 @@ const typeLabel: Record<string, string> = {
     <template v-if="detail">
       <el-descriptions :column="2" border class="block" title="工单信息">
         <el-descriptions-item label="工单号">{{ detail.orderNo }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ detail.status }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ statusLabel[detail.status] ?? detail.status }}</el-descriptions-item>
         <el-descriptions-item label="计划ID">{{ detail.planId ?? '-' }}</el-descriptions-item>
         <el-descriptions-item label="任务ID">{{ detail.taskId ?? '-' }}</el-descriptions-item>
         <el-descriptions-item label="区域">{{ detail.area }}</el-descriptions-item>
@@ -61,8 +79,13 @@ const typeLabel: Record<string, string> = {
         <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
       </el-descriptions>
 
+      <el-card v-if="droneReportSummary" class="block" shadow="never">
+        <template #header>无人机巡检上报</template>
+        <p class="drone-report">{{ droneReportSummary }}</p>
+      </el-card>
+
       <el-card class="block" shadow="never">
-        <template #header>步骤与采集明细</template>
+        <template #header>步骤与采集明细（含检测项与采样结果）</template>
         <el-table :data="detail.steps" border stripe style="width: 100%">
           <el-table-column prop="stepOrder" label="#" width="50" />
           <el-table-column label="类型" width="80">
@@ -89,7 +112,18 @@ const typeLabel: Record<string, string> = {
             </template>
           </el-table-column>
           <el-table-column prop="collectTime" label="采集时间" min-width="160" />
-          <el-table-column prop="photoUrl" label="照片" min-width="120" show-overflow-tooltip />
+          <el-table-column label="照片/采样" min-width="140">
+            <template #default="{ row }">
+              <el-image
+                v-if="row.photoUrl && row.photoUrl.startsWith('data:')"
+                :src="row.photoUrl"
+                style="width: 64px; height: 48px"
+                fit="cover"
+                :preview-src-list="[row.photoUrl]"
+              />
+              <span v-else>{{ row.photoUrl || '—' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="remark" label="备注" min-width="100" show-overflow-tooltip />
         </el-table>
       </el-card>
@@ -107,5 +141,11 @@ const typeLabel: Record<string, string> = {
 }
 .block {
   margin-top: 12px;
+}
+
+.drone-report {
+  margin: 0;
+  line-height: 1.6;
+  color: #303133;
 }
 </style>

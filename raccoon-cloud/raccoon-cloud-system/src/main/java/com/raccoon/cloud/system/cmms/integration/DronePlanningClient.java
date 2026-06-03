@@ -1,5 +1,6 @@
 package com.raccoon.cloud.system.cmms.integration;
 
+import com.raccoon.common.dto.planning.WorkOrderAuditApproveResult;
 import com.raccoon.common.result.HxResult;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -8,9 +9,11 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -36,21 +39,43 @@ public class DronePlanningClient {
         this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
     }
 
-    public boolean dispatchApproved(String dispatchTaskId, String planningPayloadJson) {
+    public WorkOrderAuditApproveResult dispatchApproved(String dispatchTaskId, String planningPayloadJson,
+                                                        Long assignedTerminalId) {
+        WorkOrderAuditApproveResult out = new WorkOrderAuditApproveResult();
+        if (!StringUtils.hasText(planningPayloadJson)) {
+            out.setDispatched(false);
+            out.setMessage("缺少规划载荷，无法正式下发（请重新生成待审工单）");
+            return out;
+        }
         try {
-            HxResult<?> resp = restClient.post()
+            Map<String, Object> body = new HashMap<>();
+            body.put("dispatchTaskId", dispatchTaskId != null ? dispatchTaskId : "");
+            body.put("planningPayloadJson", planningPayloadJson);
+            if (assignedTerminalId != null) {
+                body.put("assignedTerminalId", assignedTerminalId);
+            }
+            HxResult<Map<String, Object>> resp = restClient.post()
                     .uri("/planning/audit/approve-dispatch")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of(
-                            "dispatchTaskId", dispatchTaskId != null ? dispatchTaskId : "",
-                            "planningPayloadJson", planningPayloadJson != null ? planningPayloadJson : ""))
+                    .body(body)
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {
                     });
-            return resp != null && resp.getCode() == 200;
+            if (resp == null || resp.getCode() != 200 || resp.getData() == null) {
+                out.setDispatched(false);
+                out.setMessage(resp != null ? resp.getMsg() : "drone 服务无响应");
+                return out;
+            }
+            Map<String, Object> data = resp.getData();
+            out.setDispatched(Boolean.TRUE.equals(data.get("dispatched")));
+            out.setDispatchPayload(data.get("dispatchPayload"));
+            out.setMessage("正式下发成功");
+            return out;
         } catch (Exception e) {
             log.warn("[DronePlanningClient] 正式下发失败 dispatchTaskId={}: {}", dispatchTaskId, e.getMessage());
-            return false;
+            out.setDispatched(false);
+            out.setMessage("正式下发失败: " + e.getMessage());
+            return out;
         }
     }
 

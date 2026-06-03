@@ -93,7 +93,7 @@ const routes: RouteRecordRaw[] = [
         path: '/cmms/inspection',
         name: 'CmmsInspection',
         component: () => import('@/views/cmms/inspection/index.vue'),
-        meta: { title: '巡检管理', icon: 'DocumentChecked' }
+        meta: { title: '巡检计划与任务', icon: 'DocumentChecked' }
       },
       {
         path: '/cmms/maintenance',
@@ -124,6 +124,12 @@ const routes: RouteRecordRaw[] = [
         name: 'DroneInspectionData',
         component: () => import('@/views/drone/inspection-data/index.vue'),
         meta: { title: '巡检数据', icon: 'DataLine' }
+      },
+      {
+        path: '/drone/fault-grade',
+        name: 'DroneFaultGrade',
+        component: () => import('@/views/drone/fault-grade/index.vue'),
+        meta: { title: '故障分级处理', icon: 'Warning' }
       },
       {
         path: '/ai/ollama-test',
@@ -185,10 +191,14 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '巡检结果', hidden: true }
       },
       {
-        path: '/cmms/work-order-audit',
+        path: '/cmms/inspection/work-order-audit',
         name: 'WorkOrderAudit',
         component: () => import('@/views/cmms/WorkOrderAuditView.vue'),
         meta: { title: '工单审核', icon: 'Checked' }
+      },
+      {
+        path: '/cmms/work-order-audit',
+        redirect: '/cmms/inspection/work-order-audit'
       },
       {
         path: '/cmms/grid-inspection-wo',

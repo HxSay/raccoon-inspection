@@ -1,7 +1,9 @@
 package com.raccoon.cloud.system.cmms.controller;
 
+import com.raccoon.cloud.system.cmms.dto.AgentSimulationCompleteRequest;
 import com.raccoon.cloud.system.cmms.entity.InspectionWorkOrder;
 import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderMapper;
+import com.raccoon.cloud.system.cmms.service.InspectionWorkOrderService;
 import com.raccoon.cloud.system.cmms.service.MobileAuditService;
 import com.raccoon.cloud.system.cmms.service.WorkOrderGenerateService;
 import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitRequest;
@@ -26,6 +28,7 @@ public class CmmsAgentPlanningController {
 
     private final WorkOrderGenerateService workOrderGenerateService;
     private final MobileAuditService mobileAuditService;
+    private final InspectionWorkOrderService inspectionWorkOrderService;
     private final InspectionWorkOrderMapper orderMapper;
 
     @PostMapping("/submit")
@@ -62,5 +65,15 @@ public class CmmsAgentPlanningController {
     public HxResult<Void> storePayload(@RequestParam Long workOrderId, @RequestBody String payloadJson) {
         workOrderGenerateService.storePlanningPayload(workOrderId, payloadJson);
         return HxResult.success();
+    }
+
+    @PostMapping("/complete-simulation")
+    public HxResult<?> completeSimulation(@RequestBody AgentSimulationCompleteRequest req) {
+        try {
+            inspectionWorkOrderService.completeAfterSimulation(req);
+            return HxResult.success("工单已标记为已完成");
+        } catch (IllegalArgumentException e) {
+            return HxResult.fail(e.getMessage());
+        }
     }
 }

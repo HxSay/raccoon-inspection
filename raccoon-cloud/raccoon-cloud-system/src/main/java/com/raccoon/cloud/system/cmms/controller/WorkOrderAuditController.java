@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.raccoon.cloud.system.cmms.entity.InspectionWorkOrder;
 import com.raccoon.cloud.system.cmms.service.MobileAuditService;
 import com.raccoon.common.dto.planning.WorkOrderAuditActionRequest;
+import com.raccoon.common.dto.planning.WorkOrderAuditApproveResult;
 import com.raccoon.common.dto.planning.WorkOrderAuditDetailDTO;
 import com.raccoon.common.result.HxResult;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -44,11 +45,11 @@ public class WorkOrderAuditController {
     }
 
     @PostMapping("/approve")
-    public HxResult<?> approve(@RequestBody WorkOrderAuditActionRequest req) {
+    public HxResult<WorkOrderAuditApproveResult> approve(@RequestBody WorkOrderAuditActionRequest req) {
         try {
-            mobileAuditService.approve(req);
-            return HxResult.success("审核通过，任务已下发");
-        } catch (IllegalArgumentException e) {
+            WorkOrderAuditApproveResult result = mobileAuditService.approve(req);
+            return HxResult.success(result);
+        } catch (IllegalArgumentException | IllegalStateException e) {
             return HxResult.fail(e.getMessage());
         }
     }

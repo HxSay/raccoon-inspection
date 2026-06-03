@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 /**
  * 任务规划 Agent 端到端：NLP 解析 → 多机协同调度（不下发）→ CMMS 工单待审核。
  */
@@ -87,8 +89,11 @@ public class PlanningEndToEndService {
             dispatchReq.setEnableSimulation(req.getEnableSimulation());
         }
 
-        String payloadJson = toJson(dispatchReq);
         DispatchTaskResponse dispatch = taskGenerateService.generate(dispatchReq);
+        if (dispatch.getAssignedTerminalId() != null) {
+            dispatchReq.setPreferredTerminalIds(List.of(dispatch.getAssignedTerminalId()));
+        }
+        String payloadJson = toJson(dispatchReq);
         out.setDispatchTaskId(dispatch.getTaskId());
         out.setAssignedTerminalId(dispatch.getAssignedTerminalId());
         out.setAssignedTerminalName(dispatch.getAssignedTerminalName());
@@ -114,13 +119,23 @@ public class PlanningEndToEndService {
     }
 
 
-    public boolean approveDispatch(String dispatchTaskId, String planningPayloadJson) {
+    public DispatchTaskResponse approveDispatch(String dispatchTaskId, String planningPayloadJson, Long assignedTerminalId) {
         DispatchTaskRequest req = parsePayload(planningPayloadJson);
         req.setAutoDispatch(true);
+        if (req.getEnableSimulation() == null) {
+            req.setEnableSimulation(Boolean.TRUE);
+        }
+        if (assignedTerminalId != null) {
+            req.setPreferredTerminalIds(Collections.singletonList(assignedTerminalId));
+        }
         DispatchTaskResponse resp = taskGenerateService.generate(req);
-        boolean ok = resp.isAssigned() && resp.getWorkOrder() != null;
-        log.info("[PlanningE2E] 审核通过正式下发 dispatchTaskId={} ok={}", dispatchTaskId, ok);
-        return ok;
+        boolean ok = resp.isAssigned()
+                && resp.getWorkOrder() != null
+                && "SUCCESS".equals(resp.getWorkOrder().getDispatchResult());
+        log.info("[PlanningE2E] 审核通过正式下发 dispatchTaskId={} ok={} planId={}",
+                dispatchTaskId, ok,
+                resp.getWorkOrder() != null ? resp.getWorkOrder().getPlanId() : null);
+        return resp;
     }
 
     public boolean replanRejected(Long workOrderId, String dispatchTaskId, String planningPayloadJson) {

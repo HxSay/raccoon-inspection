@@ -55,7 +55,8 @@ const menuTree: MenuNode[] = [
     title: '巡检管理',
     icon: 'DocumentChecked',
     children: [
-      { path: '/cmms/inspection', title: '巡检管理', icon: 'DocumentChecked' },
+      { path: '/cmms/inspection', title: '巡检计划与任务', icon: 'DocumentChecked' },
+      { path: '/cmms/inspection/work-order-audit', title: '工单审核', icon: 'Checked' },
       { path: '/cmms/maintenance', title: '设备维护工单', icon: 'Tools' }
     ]
   },
@@ -68,7 +69,8 @@ const menuTree: MenuNode[] = [
       { path: '/drone/route-plan', title: '无人机路径规划', icon: 'Position' },
       { path: '/drone/field-device', title: '现场设备管理', icon: 'Place' },
       { path: '/drone/robot-manage', title: '巡检机器人管理', icon: 'Cpu' },
-      { path: '/drone/inspection-data', title: '巡检数据', icon: 'DataLine' }
+      { path: '/drone/inspection-data', title: '巡检数据', icon: 'DataLine' },
+      { path: '/drone/fault-grade', title: '故障分级处理', icon: 'Warning' }
     ]
   },
   {

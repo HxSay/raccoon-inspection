@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import InspectionAgentFab from '@/components/sim/InspectionAgentFab.vue'
+import { AGENT_ACTIVE_DISPATCH_TASK_KEY, AGENT_ACTIVE_WORK_ORDER_KEY } from '@/api/agentPlanning'
+import { postDispatchToSimIframe, subscribeInspectionDispatchBroadcast } from '@/utils/inspectionBridge'
 
 /**
  * 嵌入 raccoon-drone-sim（默认 http://127.0.0.1:3010）。
@@ -40,12 +43,43 @@ const retryLoad = () => {
   }
 }
 
+let unsubscribeDispatch: (() => void) | undefined
+
 onMounted(() => {
   timer = setTimeout(() => {
     if (!iframeLoaded.value) {
       loadTimeout.value = true
     }
   }, 12000)
+
+  unsubscribeDispatch = subscribeInspectionDispatchBroadcast((msg) => {
+    if (!iframeLoaded.value || !simIframeRef.value) {
+      ElMessage.warning('仿真页尚未加载完成，请稍后从审核页再次通过或刷新仿真页')
+      return
+    }
+    if (msg.workOrderId != null) {
+      sessionStorage.setItem(AGENT_ACTIVE_WORK_ORDER_KEY, String(msg.workOrderId))
+    }
+    if (msg.dispatchTaskId) {
+      sessionStorage.setItem(AGENT_ACTIVE_DISPATCH_TASK_KEY, msg.dispatchTaskId)
+    }
+    const ok = postDispatchToSimIframe(simIframeRef.value, msg.dispatch, {
+      autoStart: msg.autoStart,
+      userInput: msg.userInput,
+      workOrderId: msg.workOrderId,
+      dispatchTaskId: msg.dispatchTaskId
+    })
+    if (ok) {
+      ElMessage.success('审核通过，无人机开始巡检')
+    } else {
+      ElMessage.error('无法向仿真窗口下发航线')
+    }
+  })
+})
+
+onBeforeUnmount(() => {
+  unsubscribeDispatch?.()
+  if (timer) clearTimeout(timer)
 })
 </script>
 

@@ -1,4 +1,4 @@
-com\raccoon\cloud\drone\DroneApplication.class
+com\raccoon\cloud\drone\fault\service\FaultResponsePlanService$1.class
 com\raccoon\cloud\drone\config\MybatisPlusConfig.class
 com\raccoon\cloud\drone\mapper\UavRoutePlanMapper.class
 com\raccoon\cloud\drone\dispatch\service\AuctionAssignService$1.class

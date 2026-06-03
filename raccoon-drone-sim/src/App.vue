@@ -19,6 +19,7 @@ import { fetchRouteDispatch } from '@/api/droneRoute'
 import type { UavRouteDispatchPayload } from '@/types/droneDispatch'
 import { EdgeCloudTelemetryReporter } from '@/sim/edgeCloudTelemetry'
 import { uploadMultimodalMissionResult } from '@/sim/edgeCloudMultimodal'
+import { slimMissionReport } from '@/utils/slimMissionReport'
 import type { MultimodalModalityType } from '@/sim/multimodalTypes'
 import {
   dispatchToCloudPath,
@@ -646,7 +647,8 @@ async function onComplete(r: MissionReport) {
       telemetrySent: r.telemetrySent,
       multimodalUploaded: !!lastReport.value?.multimodalUpload && !lastReport.value.multimodalUpload.error,
       multimodalError: lastReport.value?.multimodalUpload?.error
-    }
+    },
+    missionReport: slimMissionReport(lastReport.value ?? r)
   })
 }
 
@@ -726,7 +728,8 @@ function rebuildMissionRunner() {
             telemetrySent: merged.telemetrySent,
             multimodalUploaded: !!lastReport.value?.multimodalUpload && !lastReport.value.multimodalUpload.error,
             multimodalError: lastReport.value?.multimodalUpload?.error
-          }
+          },
+          missionReport: slimMissionReport(lastReport.value ?? merged)
         })
       }
     }

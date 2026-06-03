@@ -18,6 +18,7 @@ import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderDetailMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderMapper;
 import com.raccoon.cloud.system.mapper.UserMapper;
 import com.raccoon.cloud.system.model.User;
+import com.raccoon.cloud.system.cmms.service.AgentPathPlanHelper.PhotoAnchor;
 import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitRequest;
 import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitResponse;
 import lombok.RequiredArgsConstructor;
@@ -119,14 +120,19 @@ public class WorkOrderGenerateService {
         order.setAuditDeadline(now.plusHours(auditTimeoutHours));
         orderMapper.insert(order);
 
+        List<PhotoAnchor> photoAnchors = AgentPathPlanHelper.parsePhotoAnchors(req.getPathPlanJson(), objectMapper);
         int stepNo = 1;
+        int devIdx = 0;
         for (DeviceInfo dev : devices) {
             inspectionWorkOrderService.ensureDeviceRow(dev.getId());
+            ensureDefaultInspectionPoints(dev);
             List<InspectionPoint> points = pointMapper.selectList(
                     new QueryWrapper<InspectionPoint>()
                             .eq("device_id", dev.getId())
                             .orderByAsc("sort", "id"));
-            stepNo = appendStandardSteps(order.getId(), stepNo, area, dev, points);
+            PhotoAnchor anchor = devIdx < photoAnchors.size() ? photoAnchors.get(devIdx) : null;
+            stepNo = appendStandardSteps(order.getId(), stepNo, area, dev, points, anchor);
+            devIdx++;
         }
 
         task.setWorkOrderId(order.getId());
@@ -161,14 +167,19 @@ public class WorkOrderGenerateService {
             throw new IllegalArgumentException("未解析到有效巡检设备");
         }
         String area = StringUtils.hasText(req.getAreaName()) ? req.getAreaName().trim() : order.getArea();
+        List<PhotoAnchor> photoAnchors = AgentPathPlanHelper.parsePhotoAnchors(req.getPathPlanJson(), objectMapper);
         int stepNo = 1;
+        int devIdx = 0;
         for (DeviceInfo dev : devices) {
             inspectionWorkOrderService.ensureDeviceRow(dev.getId());
+            ensureDefaultInspectionPoints(dev);
             List<InspectionPoint> points = pointMapper.selectList(
                     new QueryWrapper<InspectionPoint>()
                             .eq("device_id", dev.getId())
                             .orderByAsc("sort", "id"));
-            stepNo = appendStandardSteps(workOrderId, stepNo, area, dev, points);
+            PhotoAnchor anchor = devIdx < photoAnchors.size() ? photoAnchors.get(devIdx) : null;
+            stepNo = appendStandardSteps(workOrderId, stepNo, area, dev, points, anchor);
+            devIdx++;
         }
 
         order.setDispatchTaskId(trim(req.getDispatchTaskId()));
@@ -232,32 +243,72 @@ public class WorkOrderGenerateService {
         return prefix + String.format("%04d", next);
     }
 
+    private void ensureDefaultInspectionPoints(DeviceInfo dev) {
+        long cnt = pointMapper.selectCount(
+                new QueryWrapper<InspectionPoint>().eq("device_id", dev.getId()));
+        if (cnt > 0) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        insertPoint(dev.getId(), "可见光外观", 1, null, null, null, 1, now);
+        insertPoint(dev.getId(), "红外热成像温度", 2, new BigDecimal("20"), new BigDecimal("85"), "℃", 2, now);
+        insertPoint(dev.getId(), "振动幅值", 3, new BigDecimal("0"), new BigDecimal("5"), "mm/s", 3, now);
+        log.info("[WorkOrderGenerate] 已为设备 {} 初始化默认检测项", dev.getDeviceName());
+    }
+
+    private void insertPoint(Long deviceId, String name, int type, BigDecimal min, BigDecimal max,
+                             String unit, int sort, LocalDateTime now) {
+        InspectionPoint p = new InspectionPoint();
+        p.setDeviceId(deviceId);
+        p.setPointName(name);
+        p.setPointType(type);
+        p.setMinThreshold(min);
+        p.setMaxThreshold(max);
+        p.setUnit(unit);
+        p.setSort(sort);
+        p.setCreateTime(now);
+        p.setUpdateTime(now);
+        pointMapper.insert(p);
+    }
+
     private int appendStandardSteps(Long orderId, int stepNo, String area, DeviceInfo dev,
-                                    List<InspectionPoint> points) {
+                                    List<InspectionPoint> points, PhotoAnchor anchor) {
         String dname = dev.getDeviceName();
         Long devId = dev.getId();
         String loc = StringUtils.hasText(dev.getLocation()) ? dev.getLocation() : area;
+        String wpRemark = anchor != null ? "waypointIndex=" + anchor.getWaypointIndex() : null;
 
-        stepNo = insertDetail(orderId, stepNo, "path", area, "按路径前往 " + dname, devId, dname, null, null, null, null);
-        stepNo = insertDetail(orderId, stepNo, "stop", loc, "停靠 " + dname + "，请扫码确认设备", null, dname, null, null, null, null);
+        String pathDesc = "按路径前往 " + dname;
+        if (anchor != null && anchor.getLatitude() != null) {
+            pathDesc += String.format("（航点#%d, %.6f, %.6f）", anchor.getWaypointIndex(),
+                    anchor.getLongitude(), anchor.getLatitude());
+        }
+        stepNo = insertDetail(orderId, stepNo, "path", area, pathDesc, devId, dname, null, null, null, null, wpRemark);
+
+        stepNo = insertDetail(orderId, stepNo, "stop", loc, "停靠 " + dname + " 并确认设备", devId, dname,
+                "设备到位确认", null, null, null, wpRemark);
 
         if (points == null || points.isEmpty()) {
-            stepNo = insertDetail(orderId, stepNo, "collect", loc, "执行规范巡检并记录", devId, dname,
-                    "巡检确认", null, null, null);
+            stepNo = insertDetail(orderId, stepNo, "collect", loc, "可见光/多模态巡检采集", devId, dname,
+                    "可见光外观", null, null, null, wpRemark);
         } else {
             for (InspectionPoint p : points) {
-                stepNo = insertDetail(orderId, stepNo, "collect", loc,
-                        "采集 " + (p.getPointName() != null ? p.getPointName() : "测点"),
-                        devId, dname, p.getPointName(), p.getMinThreshold(), p.getMaxThreshold(), p.getUnit());
+                String desc = "采集「" + (p.getPointName() != null ? p.getPointName() : "测点") + "」";
+                if (StringUtils.hasText(p.getUnit()) && p.getMinThreshold() != null && p.getMaxThreshold() != null) {
+                    desc += String.format("（标准 %s~%s %s）", p.getMinThreshold(), p.getMaxThreshold(), p.getUnit());
+                }
+                stepNo = insertDetail(orderId, stepNo, "collect", loc, desc, devId, dname,
+                        p.getPointName(), p.getMinThreshold(), p.getMaxThreshold(), p.getUnit(), wpRemark);
             }
         }
-        stepNo = insertDetail(orderId, stepNo, "report", area, dname + " 本段巡检上报", devId, dname, null, null, null, null);
+        stepNo = insertDetail(orderId, stepNo, "report", area, dname + " 无人机巡检结果上报", devId, dname,
+                "巡检结果汇总", null, null, null, wpRemark);
         return stepNo;
     }
 
     private int insertDetail(Long orderId, int stepNo, String type, String target, String desc,
                              Long deviceId, String deviceName, String checkItem,
-                             BigDecimal min, BigDecimal max, String unit) {
+                             BigDecimal min, BigDecimal max, String unit, String remark) {
         InspectionWorkOrderDetail d = new InspectionWorkOrderDetail();
         d.setOrderId(orderId);
         d.setStepOrder(stepNo);
@@ -270,6 +321,7 @@ public class WorkOrderGenerateService {
         d.setStandardMin(min);
         d.setStandardMax(max);
         d.setUnit(unit);
+        d.setRemark(remark);
         d.setIsException(0);
         detailMapper.insert(d);
         return stepNo + 1;

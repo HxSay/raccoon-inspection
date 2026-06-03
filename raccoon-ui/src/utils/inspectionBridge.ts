@@ -1,5 +1,9 @@
+import type { SimulationMissionReport } from '@/api/agentPlanningTypes'
 import type { InspectionTask } from '@/api/droneNlp'
 import type { UavRouteDispatchPayload } from '@/api/drone'
+
+/** 跨标签页广播：审核通过后向仿真页下发航线 */
+export const INSPECTION_DISPATCH_CHANNEL = 'raccoon-inspection-dispatch'
 
 /** 父页面 → 仿真 iframe：下发巡检航线 */
 export const MSG_INSPECTION_DISPATCH = 'RACCOON_INSPECTION_DISPATCH'
@@ -20,6 +24,10 @@ export interface InspectionDispatchMessage {
   userInput?: string
   /** 建议出动无人机数量（由 LLM 决策，仿真侧按可用机数最终裁剪） */
   recommendedFleet?: number
+  /** Agent 工单 ID，仿真结束后回写 CMMS 状态 */
+  workOrderId?: number
+  /** drone 调度任务 ID */
+  dispatchTaskId?: string
 }
 
 export interface InspectionMissionCompleteMessage {
@@ -32,6 +40,8 @@ export interface InspectionMissionCompleteMessage {
     multimodalUploaded?: boolean
     multimodalError?: string
   }
+  /** 完整仿真上报（用于 CMMS 工单/巡检记录回填） */
+  missionReport?: SimulationMissionReport
 }
 
 export function inspectionTaskToDispatch(task: InspectionTask): UavRouteDispatchPayload {
@@ -61,7 +71,13 @@ export function inspectionTaskToDispatch(task: InspectionTask): UavRouteDispatch
 export function postDispatchToSimIframe(
   iframe: HTMLIFrameElement | null | undefined,
   dispatch: UavRouteDispatchPayload,
-  options?: { autoStart?: boolean; userInput?: string; recommendedFleet?: number }
+  options?: {
+    autoStart?: boolean
+    userInput?: string
+    recommendedFleet?: number
+    workOrderId?: number
+    dispatchTaskId?: string
+  }
 ): boolean {
   const win = iframe?.contentWindow
   if (!win) return false
@@ -70,10 +86,51 @@ export function postDispatchToSimIframe(
     dispatch,
     autoStart: options?.autoStart !== false,
     userInput: options?.userInput,
-    recommendedFleet: options?.recommendedFleet
+    recommendedFleet: options?.recommendedFleet,
+    workOrderId: options?.workOrderId,
+    dispatchTaskId: options?.dispatchTaskId
   }
   win.postMessage(msg, '*')
   return true
+}
+
+/** 审核通过等场景：向已打开的仿真页广播航线（同浏览器多标签可用） */
+export function broadcastDispatchToSim(
+  dispatch: UavRouteDispatchPayload,
+  options?: {
+    autoStart?: boolean
+    userInput?: string
+    workOrderId?: number
+    dispatchTaskId?: string
+  }
+): void {
+  if (typeof BroadcastChannel === 'undefined') return
+  const ch = new BroadcastChannel(INSPECTION_DISPATCH_CHANNEL)
+  const msg: InspectionDispatchMessage = {
+    type: MSG_INSPECTION_DISPATCH,
+    dispatch,
+    autoStart: options?.autoStart !== false,
+    userInput: options?.userInput,
+    workOrderId: options?.workOrderId,
+    dispatchTaskId: options?.dispatchTaskId
+  }
+  ch.postMessage(msg)
+  ch.close()
+}
+
+export function subscribeInspectionDispatchBroadcast(
+  handler: (msg: InspectionDispatchMessage) => void
+): () => void {
+  if (typeof BroadcastChannel === 'undefined') {
+    return () => {}
+  }
+  const ch = new BroadcastChannel(INSPECTION_DISPATCH_CHANNEL)
+  ch.onmessage = (ev: MessageEvent<InspectionDispatchMessage>) => {
+    if (ev.data?.type === MSG_INSPECTION_DISPATCH && ev.data.dispatch) {
+      handler(ev.data)
+    }
+  }
+  return () => ch.close()
 }
 
 export function formatTaskSummary(task: InspectionTask, slots?: { areaName?: string; deviceNames?: string[] }): string {

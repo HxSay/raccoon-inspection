@@ -57,6 +57,7 @@ public class InspectionWorkOrderService {
     private final InspectionPlanMapper planMapper;
     private final UserMapper userMapper;
     private final UserService userService;
+    private final AgentSimulationResultSyncService agentSimulationResultSyncService;
 
     public InspectionWorkOrderService(
             InspectionWorkOrderMapper orderMapper,
@@ -66,7 +67,8 @@ public class InspectionWorkOrderService {
             InspectionTaskMapper taskMapper,
             InspectionPlanMapper planMapper,
             UserMapper userMapper,
-            UserService userService) {
+            UserService userService,
+            AgentSimulationResultSyncService agentSimulationResultSyncService) {
         this.orderMapper = orderMapper;
         this.detailMapper = detailMapper;
         this.gridDeviceMapper = gridDeviceMapper;
@@ -75,6 +77,7 @@ public class InspectionWorkOrderService {
         this.planMapper = planMapper;
         this.userMapper = userMapper;
         this.userService = userService;
+        this.agentSimulationResultSyncService = agentSimulationResultSyncService;
     }
 
     private User safeCurrentUser() {
@@ -496,6 +499,51 @@ public class InspectionWorkOrderService {
         d.setCollectTime(LocalDateTime.now());
         detailMapper.updateById(d);
         refreshOrderProgress(order.getId());
+    }
+
+    /**
+     * 仿真/Agent 无人机巡检结束后：自动回填全部步骤并置工单为已完成，同步关联巡检任务。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void completeAfterSimulation(AgentSimulationCompleteRequest req) {
+        InspectionWorkOrder order = resolveOrderForSimulation(req);
+        if (order.getStatus() == InspectionWorkOrderStatus.FINISHED) {
+            log.info("[completeAfterSimulation] 工单已完成 orderNo={}", order.getOrderNo());
+            return;
+        }
+        if (order.getStatus() == InspectionWorkOrderStatus.PENDING_AUDIT
+                || order.getStatus() == InspectionWorkOrderStatus.AUDIT_REJECTED) {
+            throw new IllegalArgumentException("工单尚未审核通过，无法回写仿真结果");
+        }
+        if (order.getStatus() == InspectionWorkOrderStatus.PENDING_ISSUE) {
+            throw new IllegalArgumentException("工单待下发，请先审核通过并下发");
+        }
+        agentSimulationResultSyncService.sync(req, order);
+        log.info("[completeAfterSimulation] orderNo={} synced with mission report", order.getOrderNo());
+    }
+
+    private InspectionWorkOrder resolveOrderForSimulation(AgentSimulationCompleteRequest req) {
+        if (req == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        if (req.getWorkOrderId() != null) {
+            InspectionWorkOrder order = orderMapper.selectById(req.getWorkOrderId());
+            if (order == null) {
+                throw new IllegalArgumentException("工单不存在");
+            }
+            return order;
+        }
+        if (StringUtils.hasText(req.getDispatchTaskId())) {
+            InspectionWorkOrder order = orderMapper.selectOne(
+                    new QueryWrapper<InspectionWorkOrder>()
+                            .eq("dispatch_task_id", req.getDispatchTaskId().trim())
+                            .orderByDesc("id")
+                            .last("LIMIT 1"));
+            if (order != null) {
+                return order;
+            }
+        }
+        throw new IllegalArgumentException("请提供 workOrderId 或 dispatchTaskId");
     }
 
     @Transactional(rollbackFor = Exception.class)

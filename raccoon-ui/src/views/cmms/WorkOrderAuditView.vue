@@ -8,6 +8,9 @@ import {
   rejectWorkOrder,
   type WorkOrderAuditDetailDTO
 } from '@/api/workOrderAudit'
+import type { UavRouteDispatchPayload } from '@/api/drone'
+import { AGENT_ACTIVE_DISPATCH_TASK_KEY, AGENT_ACTIVE_WORK_ORDER_KEY } from '@/api/agentPlanning'
+import { broadcastDispatchToSim } from '@/utils/inspectionBridge'
 
 const loading = ref(false)
 const orders = ref<Array<{ id: number; orderNo: string; area: string; auditDeadline?: string }>>([])
@@ -51,8 +54,26 @@ const onApprove = async () => {
   if (!selectedId.value) return
   await ElMessageBox.confirm('确认审核通过并正式下发巡检任务？', '审核通过')
   try {
-    await approveWorkOrder({ workOrderId: selectedId.value })
-    ElMessage.success('审核通过')
+    const res: any = await approveWorkOrder({ workOrderId: selectedId.value })
+    const payload = res.data?.dispatchPayload as UavRouteDispatchPayload | undefined
+    const woId = selectedId.value
+    if (woId) {
+      sessionStorage.setItem(AGENT_ACTIVE_WORK_ORDER_KEY, String(woId))
+    }
+    if (detail.value?.dispatchTaskId) {
+      sessionStorage.setItem(AGENT_ACTIVE_DISPATCH_TASK_KEY, detail.value.dispatchTaskId)
+    }
+    if (payload?.uavId) {
+      broadcastDispatchToSim(payload, {
+        autoStart: true,
+        userInput: `审核通过工单 ${detail.value?.orderNo ?? ''}`,
+        workOrderId: woId ?? undefined,
+        dispatchTaskId: detail.value?.dispatchTaskId
+      })
+      ElMessage.success('审核通过，已向仿真页下发航线（请保持「仿真模拟」页打开）')
+    } else {
+      ElMessage.success('审核通过，任务已下发')
+    }
     detail.value = null
     selectedId.value = null
     await loadList()
@@ -83,7 +104,7 @@ onMounted(loadList)
 
 <template>
   <div class="audit-page">
-    <h2>巡检工单审核（移动端）</h2>
+    <h2>巡检工单审核</h2>
     <el-row :gutter="16">
       <el-col :span="8">
         <el-card v-loading="loading" shadow="never">

@@ -409,6 +409,13 @@ if ($Compile) {
     Write-Host ''
 }
 
+# 公共模块 install 到本地仓库，避免 system/drone 启动时 ClassNotFound（如 WorkOrderAuditApproveResult）
+Write-Info '>>> mvn install: raccoon-common'
+& $mvn -f "$Root\pom.xml" -pl raccoon-common install -DskipTests -q
+if ($LASTEXITCODE -ne 0) { throw "Maven install raccoon-common failed: exit $LASTEXITCODE" }
+Write-Ok '>>> raccoon-common installed'
+Write-Host ''
+
 foreach ($svc in $Services) {
     Start-SpringService -Name $svc.Name -Module $svc.Module -Port $svc.Port `
         -Mvn $mvn -JavaHome $javaHome -RootPath $Root -VisibleWindow $visible
@@ -442,7 +449,7 @@ if ($visible) {
 }
 Write-Host ''
 Write-Host '  UI (PC):     http://localhost:3000' -ForegroundColor White
-Write-Host '  工单审核(PC): http://localhost:3000/cmms/work-order-audit' -ForegroundColor White
+Write-Host '  工单审核(PC): http://localhost:3000/cmms/inspection/work-order-audit' -ForegroundColor White
 if (-not $NoMobile) {
     Write-Host '  Mobile:      http://localhost:5174  (工单审核: /audit)' -ForegroundColor White
 }

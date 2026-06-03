@@ -7,7 +7,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 @SpringBootApplication
 @EnableDiscoveryClient
-@MapperScan("com.raccoon.cloud.drone.mapper")
+@MapperScan({"com.raccoon.cloud.drone.mapper", "com.raccoon.cloud.drone.fault.mapper"})
 public class DroneApplication {
 
     public static void main(String[] args) {

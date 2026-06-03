@@ -1,2 +1,2 @@
-com\raccoon\common\result\HxResult.class
 com\raccoon\common\feign\device\DeviceFeignClient.class
+com\raccoon\common\result\HxResult.class

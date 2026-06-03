@@ -65,6 +65,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-sy
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\service\SupplierService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\config\RedisConfig.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\mapper\GridDeviceMapper.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\service\AgentSimulationResultSyncService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\mapper\DictDataMapper.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\controller\WorkOrderAuditController.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\mapper\InspectionWarehouseMapper.java
@@ -102,6 +103,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-sy
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\dto\TaskReportAbnormalRequest.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\security\SecurityConfig.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\controller\CmmsDeviceController.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\service\AgentPathPlanHelper.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\model\dto\DictTypeRequest.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\model\DictData.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\integration\DronePlanningClient.java
@@ -127,6 +129,7 @@ E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-sy
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\dto\DeviceInfoPageRequest.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\dto\TaskCompleteRequest.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\sso\util\SsoStateStore.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\dto\AgentSimulationCompleteRequest.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\sso\util\SsoOAuth2TokenClient.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\cmms\dto\InspectionWorkOrderCreateRequest.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-system\src\main\java\com\raccoon\cloud\system\model\Role.java

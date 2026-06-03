@@ -61,6 +61,7 @@ const lines = ref<{ pointId: number; checkValue: string; isNormal: number }[]>([
 
 const recordOpen = ref(false)
 const records = ref<InspectionRecord[]>([])
+const recordPoints = ref<InspectionPoint[]>([])
 
 const cycleLabels: Record<number, string> = { 1: '天', 2: '周', 3: '月' }
 
@@ -338,9 +339,17 @@ const submitComplete = async () => {
   loadTasks()
 }
 
-const viewRecords = async (taskId: number) => {
-  const res: any = await cmmsRecordList(taskId)
-  records.value = res.data
+const pointNameById = (pointId: number) =>
+  recordPoints.value.find((p) => p.id === pointId)?.pointName ?? `点#${pointId}`
+
+const viewRecords = async (row: InspectionTask) => {
+  const res: any = await cmmsRecordList(row.id!)
+  records.value = res.data ?? []
+  recordPoints.value = []
+  if (row.deviceId) {
+    const pt: any = await cmmsPointList(row.deviceId)
+    recordPoints.value = pt.data ?? []
+  }
   recordOpen.value = true
 }
 
@@ -493,7 +502,7 @@ watch(
               <el-button v-if="row.status !== 2 && row.deviceId != null" link type="primary" @click="openComplete(row)"
                 >填报完成</el-button
               >
-              <el-button link type="info" @click="viewRecords(row.id)">记录</el-button>
+              <el-button link type="info" @click="viewRecords(row)">记录</el-button>
               <el-button link type="danger" @click="delTask(row.id)">删</el-button>
             </template>
           </el-table-column>
@@ -624,9 +633,12 @@ watch(
     </el-dialog>
 
     <el-dialog v-model="recordOpen" title="巡检记录" width="720px">
-      <el-table :data="records" border size="small">
-        <el-table-column prop="pointId" label="点ID" width="80" />
-        <el-table-column prop="checkValue" label="检查值" />
+      <el-empty v-if="!records.length" description="暂无巡检记录（仿真完成后将自动写入）" />
+      <el-table v-else :data="records" border size="small">
+        <el-table-column label="检测项" min-width="140">
+          <template #default="{ row }">{{ pointNameById(row.pointId) }}</template>
+        </el-table-column>
+        <el-table-column prop="checkValue" label="实测值" min-width="160" />
         <el-table-column prop="isNormal" label="正常" width="80">
           <template #default="{ row }">{{ row.isNormal === 1 ? '是' : '否' }}</template>
         </el-table-column>

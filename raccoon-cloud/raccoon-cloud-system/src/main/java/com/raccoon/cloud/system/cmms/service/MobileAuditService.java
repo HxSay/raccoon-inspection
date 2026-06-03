@@ -12,6 +12,7 @@ import com.raccoon.cloud.system.cmms.integration.DronePlanningClient;
 import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderDetailMapper;
 import com.raccoon.cloud.system.cmms.mapper.InspectionWorkOrderMapper;
 import com.raccoon.common.dto.planning.WorkOrderAuditActionRequest;
+import com.raccoon.common.dto.planning.WorkOrderAuditApproveResult;
 import com.raccoon.common.dto.planning.WorkOrderAuditDetailDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -86,7 +87,7 @@ public class MobileAuditService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void approve(WorkOrderAuditActionRequest req) {
+    public WorkOrderAuditApproveResult approve(WorkOrderAuditActionRequest req) {
         InspectionWorkOrder order = requirePending(req.getWorkOrderId());
         order.setStatus(InspectionWorkOrderStatus.PENDING_ISSUE);
         if (req.getAuditorId() != null) {
@@ -101,12 +102,18 @@ public class MobileAuditService {
         issueReq.setId(order.getId());
         inspectionWorkOrderService.issue(issueReq);
 
-        boolean dispatched = dronePlanningClient.dispatchApproved(order.getDispatchTaskId(), order.getPlanningPayloadJson());
-        if (!dispatched) {
-            log.warn("[MobileAudit] 审核通过但终端下发未确认 dispatchTaskId={}", order.getDispatchTaskId());
+        WorkOrderAuditApproveResult dispatchResult = dronePlanningClient.dispatchApproved(
+                order.getDispatchTaskId(), order.getPlanningPayloadJson(), order.getTerminalId());
+        if (!dispatchResult.isDispatched()) {
+            log.warn("[MobileAudit] 审核通过但终端下发未确认 orderNo={} dispatchTaskId={} msg={}",
+                    order.getOrderNo(), order.getDispatchTaskId(), dispatchResult.getMessage());
+            throw new IllegalStateException(dispatchResult.getMessage() != null
+                    ? dispatchResult.getMessage()
+                    : "正式下发失败，请确认 drone 服务在线且工单含规划载荷");
         }
         pushApp(order, "审核通过，巡检任务已正式下发至终端");
         log.info("[MobileAudit] 工单审核通过 orderNo={} dispatchTaskId={}", order.getOrderNo(), order.getDispatchTaskId());
+        return dispatchResult;
     }
 
     @Transactional(rollbackFor = Exception.class)
