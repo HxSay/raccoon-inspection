@@ -22,6 +22,11 @@ spring:
     url: jdbc:mysql://localhost:3306/hxsay_agent_iot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: root
+  neo4j:
+    uri: bolt://127.0.0.1:7687
+    authentication:
+      username: neo4j
+      password: Inspection@123456
 
 mybatis-plus:
   configuration:
@@ -34,3 +39,7 @@ mybatis-plus:
 logging:
   level:
     com.raccoon.cloud.iotdata: debug
+
+raccoon:
+  neo4j:
+    enabled: true

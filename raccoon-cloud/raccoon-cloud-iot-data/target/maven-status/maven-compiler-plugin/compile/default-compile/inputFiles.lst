@@ -1,5 +1,7 @@
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-iot-data\src\main\java\com\raccoon\cloud\iotdata\service\UavInspectionMultimodalService.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-iot-data\src\main\java\com\raccoon\cloud\iotdata\integration\UavInspectionRagArchiveClient.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-iot-data\src\main\java\com\raccoon\cloud\iotdata\entity\UavLocationHistory.java
+E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-iot-data\src\main\java\com\raccoon\cloud\iotdata\service\UavInspectionGraphArchiveService.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-iot-data\src\main\java\com\raccoon\cloud\iotdata\IotDataApplication.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-iot-data\src\main\java\com\raccoon\cloud\iotdata\mapper\UavInspectionSessionMapper.java
 E:\tsinghua\SRC\hxsay-ai-agent\raccoon-inspection\raccoon-cloud\raccoon-cloud-iot-data\src\main\java\com\raccoon\cloud\iotdata\dto\UavInspectionUploadResult.java

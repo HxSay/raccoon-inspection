@@ -25,6 +25,12 @@ export interface UavInspectionUploadBody {
 export interface UavInspectionUploadResult {
   sessionId: number
   sampleCount: number
+  neo4jSynced?: boolean
+  neo4jMessage?: string
+  milvusSynced?: boolean
+  milvusMessage?: string
+  ragDocId?: string
+  ragChunkCount?: number
 }
 
 interface HxResult<T> {

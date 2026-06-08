@@ -11,6 +11,7 @@ import {
 } from '@/api/agentPlanning'
 import type { SimulationMissionReport } from '@/api/agentPlanningTypes'
 import { faultIngest } from '@/api/faultHandle'
+import { closeLoopIngest, type CapturedPoint, type CloseLoopResult } from '@/api/closeLoop'
 import { fieldSceneDeviceByMap } from '@/api/fieldSceneDevice'
 import type { UavRouteDispatchPayload } from '@/api/drone'
 
@@ -38,7 +39,6 @@ import {
   type InspectionAnomalyPayload,
   postDispatchToSimIframe
 } from '@/utils/inspectionBridge'
-import type { UavRouteDispatchPayload } from '@/api/drone'
 
 const props = defineProps<{
   /** 仿真 iframe，用于 postMessage 下发航线 */
@@ -63,6 +63,41 @@ const missionRunning = ref(false)
 /** 生成 CMMS 工单并提交移动端审核（不下发仿真） */
 const submitAuditMode = ref(false)
 
+/** 当前在飞任务的计划快照，任务完成后用于闭环完整性核对 */
+interface ActiveTaskContext {
+  taskId: string
+  mapId?: number
+  plannedDeviceIds: number[]
+  plannedWaypointCount: number
+  rescheduleCount: number
+  parentTaskId?: string
+}
+let activeTaskContext: ActiveTaskContext | null = null
+/** 已完成闭环的任务，避免重复触发 */
+const closeLoopDoneTasks = new Set<string>()
+
+function setActiveTaskContext(
+  payload: UavRouteDispatchPayload | null | undefined,
+  taskId: string,
+  rescheduleCount = 0,
+  parentTaskId?: string
+) {
+  const plannedDeviceIds = Array.from(
+    new Set([
+      ...(payload?.deviceVisitOrder ?? []),
+      ...((payload?.photoWaypoints ?? []).flatMap((w) => w.deviceIds ?? []))
+    ])
+  )
+  activeTaskContext = {
+    taskId,
+    mapId: payload?.mapId,
+    plannedDeviceIds,
+    plannedWaypointCount: payload?.photoWaypoints?.length ?? 0,
+    rescheduleCount,
+    parentTaskId
+  }
+}
+
 const genId = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
@@ -84,6 +119,8 @@ const clearChat = () => {
   missionRunning.value = false
   faultIngestedKeys.clear()
   faultDedupeUntil.clear()
+  closeLoopDoneTasks.clear()
+  activeTaskContext = null
 }
 
 function bindActiveWorkOrder(workOrderId?: number | null, dispatchTaskId?: string | null) {
@@ -93,6 +130,23 @@ function bindActiveWorkOrder(workOrderId?: number | null, dispatchTaskId?: strin
   if (dispatchTaskId) {
     sessionStorage.setItem(AGENT_ACTIVE_DISPATCH_TASK_KEY, dispatchTaskId)
   }
+}
+
+function prepareExternalMission(
+  payload: UavRouteDispatchPayload,
+  options?: {
+    workOrderId?: number
+    dispatchTaskId?: string
+  }
+) {
+  bindActiveWorkOrder(options?.workOrderId, options?.dispatchTaskId)
+  const taskId =
+    options?.dispatchTaskId ||
+    (payload?.taskId != null ? String(payload.taskId) : '') ||
+    `SIM-${Date.now()}`
+  closeLoopDoneTasks.delete(taskId)
+  setActiveTaskContext(payload, taskId, 0)
+  missionRunning.value = true
 }
 
 let towerDeviceIdCache: Map<number, number> | null = null
@@ -309,6 +363,148 @@ async function handleInspectionAnomaly(anomaly: InspectionAnomalyPayload) {
   await ingestFaultEvent(anomaly, { urgent: true, skipIfIngested: true })
 }
 
+function closeStatusLabel(s?: string): string {
+  switch (s) {
+    case 'COMPLETED':
+      return '已闭环'
+    case 'PARTIAL':
+      return '部分完成·已补检'
+    case 'MANUAL_REQUIRED':
+      return '需人工介入'
+    case 'COLLECTING':
+      return '结果回收中'
+    default:
+      return s ?? '—'
+  }
+}
+
+/** 由仿真上报聚合实际完成的点位（按航点合并拍照与多模态采样） */
+function buildCapturedPoints(report?: SimulationMissionReport): {
+  captured: CapturedPoint[]
+  finishedWaypoints: number
+} {
+  const byWp = new Map<number, CapturedPoint>()
+  const aiByPhoto = new Map<string, { hasDefect?: boolean; label?: string }>()
+  for (const a of report?.aiResults ?? []) {
+    if (a.photoId) aiByPhoto.set(a.photoId, { hasDefect: a.hasDefect, label: a.label })
+  }
+  const ensure = (wp: number): CapturedPoint => {
+    let c = byWp.get(wp)
+    if (!c) {
+      c = { waypointIndex: wp, dataTypes: [] }
+      byWp.set(wp, c)
+    }
+    return c
+  }
+  for (const p of report?.photos ?? []) {
+    const c = ensure(p.waypointIndex ?? 0)
+    if (!c.dataTypes!.includes('VISIBLE')) c.dataTypes!.push('VISIBLE')
+    if (p.id) {
+      const ai = aiByPhoto.get(p.id)
+      if (ai?.hasDefect) {
+        c.hasDefect = true
+        c.faultLabel = ai.label
+      }
+    }
+  }
+  for (const s of report?.multimodalSamples ?? []) {
+    const c = ensure(s.waypointIndex ?? 0)
+    const t = (s.modalityType ?? '').toUpperCase()
+    if (t && !c.dataTypes!.includes(t)) c.dataTypes!.push(t)
+  }
+  return { captured: Array.from(byWp.values()), finishedWaypoints: byWp.size }
+}
+
+/** 任务完成 → 触发任务规划 Agent 闭环：完整性核对、报告生成、未完成项自动补检 */
+async function triggerCloseLoop(report?: SimulationMissionReport) {
+  const ctx =
+    activeTaskContext ??
+    (() => {
+      const taskId =
+        sessionStorage.getItem(AGENT_ACTIVE_DISPATCH_TASK_KEY) ||
+        `SIM-${Date.now()}`
+      const waypointIndexes = new Set<number>()
+      for (const p of report?.photos ?? []) {
+        if (p.waypointIndex != null) waypointIndexes.add(p.waypointIndex)
+      }
+      for (const s of report?.multimodalSamples ?? []) {
+        if (s.waypointIndex != null) waypointIndexes.add(s.waypointIndex)
+      }
+      const plannedWaypointCount =
+        waypointIndexes.size || report?.photoCount || report?.photos?.length || report?.multimodalSamples?.length || 0
+      return {
+        taskId,
+        plannedDeviceIds: [],
+        plannedWaypointCount,
+        rescheduleCount: 0
+      } satisfies ActiveTaskContext
+    })()
+  if (closeLoopDoneTasks.has(ctx.taskId)) return
+  closeLoopDoneTasks.add(ctx.taskId)
+
+  const { captured, finishedWaypoints } = buildCapturedPoints(report)
+  const woRaw = sessionStorage.getItem(AGENT_ACTIVE_WORK_ORDER_KEY)
+  const workOrderId = woRaw && Number.isFinite(Number(woRaw)) ? Number(woRaw) : undefined
+
+  try {
+    const res: any = await closeLoopIngest({
+      taskId: ctx.taskId,
+      mapId: ctx.mapId,
+      workOrderId,
+      plannedDeviceIds: ctx.plannedDeviceIds,
+      plannedWaypointCount: ctx.plannedWaypointCount || finishedWaypoints,
+      requiredDataTypes: ['VISIBLE'],
+      finishedWaypointCount: finishedWaypoints,
+      capturedPoints: captured,
+      flightDistanceM: report?.distanceM,
+      durationSec: report?.durationSec,
+      telemetrySent: report?.telemetrySent,
+      multimodalUploaded: report?.multimodalUploaded,
+      rescheduleCount: ctx.rescheduleCount,
+      parentTaskId: ctx.parentTaskId
+    })
+    const body = res?.data as CloseLoopResult | undefined
+    if (!body) return
+    const r = body.report
+    const lines = [
+      `【任务闭环】${closeStatusLabel(body.closeStatus)}，完成率 ${((body.completionRate ?? 0) * 100).toFixed(0)}%。`,
+      r
+        ? `计划航点 ${r.plannedWaypointCount} · 完成 ${r.finishedWaypointCount} · 漏检设备 ${r.missedDeviceCount} · 数据缺口 ${r.dataGapCount} · AI异常 ${r.defectCount}`
+        : '',
+      r?.executiveSummary ?? body.message ?? ''
+    ].filter(Boolean)
+    pushAssistant(lines.join('\n'), body.closeStatus === 'MANUAL_REQUIRED')
+
+    if (body.rescheduled && body.reinspectRoutePayload) {
+      const missed = r?.missedDeviceCount ?? body.verify?.missedDeviceIds?.length ?? 0
+      const childTaskId = body.reinspectTaskId ?? `${ctx.taskId}-R${ctx.rescheduleCount + 1}`
+      setActiveTaskContext(body.reinspectRoutePayload, childTaskId, ctx.rescheduleCount + 1, ctx.taskId)
+      if (missionRunning.value) {
+        // 已有应急复巡在飞（如火情），仅记录补检任务，避免航线冲突
+        pushAssistant(`已生成补检任务 ${childTaskId}（${missed} 个未完成设备），将在当前任务结束后执行。`)
+        return
+      }
+      const flew = dispatchReinspectRoute(
+        body.reinspectRoutePayload,
+        `closeloop-${ctx.taskId}`,
+        body.reinspectTaskId,
+        missed
+      )
+      if (flew) {
+        missionRunning.value = true
+        ElMessage.warning('存在漏检/数据缺口：已自动下发补检航线并起飞')
+        pushAssistant('已向仿真无人机下发补检航线并起飞，补检完成后将再次核对闭环。')
+      } else {
+        pushAssistant('补检航线已生成；请打开仿真页或刷新后重新下发补检。')
+      }
+    }
+  } catch (e: unknown) {
+    closeLoopDoneTasks.delete(ctx.taskId)
+    const msg = e instanceof Error ? e.message : String(e)
+    pushAssistant(`任务闭环核对失败：${msg}（请确认 drone 服务已重启并已建表 task_close_loop_audit）`, true)
+  }
+}
+
 async function syncWorkOrderAfterSimulation(missionReport?: SimulationMissionReport) {
   const woRaw = sessionStorage.getItem(AGENT_ACTIVE_WORK_ORDER_KEY)
   const dispatchTaskId = sessionStorage.getItem(AGENT_ACTIVE_DISPATCH_TASK_KEY) || undefined
@@ -386,6 +582,7 @@ function onSimMessage(ev: MessageEvent) {
       ].join('\n')
     )
     void syncWorkOrderAfterSimulation(payload.missionReport)
+    void triggerCloseLoop(payload.missionReport)
     void triggerFaultGradingFromReport(payload.missionReport)
     return
   }
@@ -588,6 +785,13 @@ const sendMessage = async () => {
     if (!posted) {
       assistantMsg.content += '\n\n下发失败：无法访问仿真窗口。'
       ElMessage.error('无法向仿真页下发指令')
+    } else {
+      const tid =
+        sessionStorage.getItem(AGENT_ACTIVE_DISPATCH_TASK_KEY) ||
+        (dispatchPayload?.taskId != null ? String(dispatchPayload.taskId) : '') ||
+        `SIM-${Date.now()}`
+      closeLoopDoneTasks.delete(tid)
+      setActiveTaskContext(dispatchPayload, tid, 0)
     }
   } catch (e: any) {
     assistantMsg.error = e?.message ?? '任务解析失败'
@@ -617,6 +821,10 @@ onBeforeUnmount(() => {
 
 watch(panelOpen, (open) => {
   if (open) scrollToBottom()
+})
+
+defineExpose({
+  prepareExternalMission
 })
 </script>
 

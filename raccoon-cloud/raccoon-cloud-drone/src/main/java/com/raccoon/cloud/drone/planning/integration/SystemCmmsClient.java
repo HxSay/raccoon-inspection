@@ -2,6 +2,7 @@ package com.raccoon.cloud.drone.planning.integration;
 
 import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitRequest;
 import com.raccoon.common.dto.planning.PlanningWorkOrderSubmitResponse;
+import com.raccoon.common.dto.planning.WorkOrderAuditDetailDTO;
 import com.raccoon.common.result.HxResult;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -82,5 +83,21 @@ public class SystemCmmsClient {
                 .body(payloadJson != null ? payloadJson : "{}")
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    public WorkOrderAuditDetailDTO auditDetail(Long workOrderId) {
+        String uri = UriComponentsBuilder.fromPath("/cmms/workOrderAudit/detail")
+                .queryParam("workOrderId", workOrderId)
+                .toUriString();
+        HxResult<WorkOrderAuditDetailDTO> resp = restClient.get()
+                .uri(uri)
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {
+                });
+        if (resp == null || resp.getCode() != 200 || resp.getData() == null) {
+            String msg = resp != null ? resp.getMsg() : "CMMS 无响应";
+            throw new IllegalStateException("获取巡检工单详情失败: " + msg);
+        }
+        return resp.getData();
     }
 }

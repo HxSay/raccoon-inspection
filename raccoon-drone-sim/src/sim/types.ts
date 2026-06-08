@@ -136,5 +136,5 @@ export interface MissionReport {
   telemetrySent: number
   bufferedWhileOffline: number
   /** 任务结束后上报 iot-data 的结果 */
-  multimodalUpload?: { sessionId: number; sampleCount: number } | { error: string }
+  multimodalUpload?: { sessionId: number; sampleCount: number; neo4jSynced?: boolean; neo4jMessage?: string } | { error: string }
 }

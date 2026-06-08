@@ -8,9 +8,12 @@ import com.raccoon.cloud.agent.ai.rag.dto.RagDeviceVO;
 import com.raccoon.cloud.agent.ai.rag.dto.RagDocumentVO;
 import com.raccoon.cloud.agent.ai.rag.dto.RagReferenceVO;
 import com.raccoon.cloud.agent.ai.rag.dto.RagSearchRequest;
+import com.raccoon.cloud.agent.ai.rag.dto.UavInspectionArchiveRequest;
+import com.raccoon.cloud.agent.ai.rag.dto.UavInspectionArchiveResultVO;
 import com.raccoon.cloud.agent.ai.rag.service.DocumentIngestionService;
 import com.raccoon.cloud.agent.ai.rag.service.HybridRagService;
 import com.raccoon.cloud.agent.ai.rag.service.RagGraphService;
+import com.raccoon.cloud.agent.ai.rag.service.UavInspectionRagArchiveService;
 import com.raccoon.cloud.agent.service.MinioStorageService;
 import com.raccoon.common.result.HxResult;
 import jakarta.validation.Valid;
@@ -47,6 +50,7 @@ public class RagController {
     private final HybridRagService hybridRagService;
     private final RagGraphService ragGraphService;
     private final MinioStorageService minioStorageService;
+    private final UavInspectionRagArchiveService uavInspectionRagArchiveService;
 
     /** 文档上传入库：multipart 上传，含设备/类型元数据 */
     @PostMapping("/ingest")
@@ -58,6 +62,12 @@ public class RagController {
     }
 
     /** 混合检索 RAG 问答 */
+    @PostMapping("/uav-inspection/archive")
+    public HxResult<UavInspectionArchiveResultVO> archiveUavInspection(
+            @RequestBody @Valid UavInspectionArchiveRequest request) {
+        return HxResult.success(uavInspectionRagArchiveService.archive(request));
+    }
+
     @PostMapping("/chat")
     public HxResult<RagChatResponse> chat(@RequestBody @Valid RagChatRequest request) {
         return HxResult.success(hybridRagService.chat(request));

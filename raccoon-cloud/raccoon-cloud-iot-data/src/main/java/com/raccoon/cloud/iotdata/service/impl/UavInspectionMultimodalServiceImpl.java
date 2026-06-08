@@ -11,10 +11,13 @@ import com.raccoon.cloud.iotdata.dto.UavInspectionUploadRequest;
 import com.raccoon.cloud.iotdata.dto.UavInspectionUploadResult;
 import com.raccoon.cloud.iotdata.entity.UavInspectionSample;
 import com.raccoon.cloud.iotdata.entity.UavInspectionSession;
+import com.raccoon.cloud.iotdata.integration.UavInspectionRagArchiveClient;
 import com.raccoon.cloud.iotdata.mapper.UavInspectionSampleMapper;
 import com.raccoon.cloud.iotdata.mapper.UavInspectionSessionMapper;
+import com.raccoon.cloud.iotdata.service.UavInspectionGraphArchiveService;
 import com.raccoon.cloud.iotdata.service.UavInspectionMultimodalService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +33,8 @@ public class UavInspectionMultimodalServiceImpl extends ServiceImpl<UavInspectio
 
     private final UavInspectionSampleMapper sampleMapper;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<UavInspectionGraphArchiveService> graphArchiveServiceProvider;
+    private final UavInspectionRagArchiveClient ragArchiveClient;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -64,7 +69,22 @@ public class UavInspectionMultimodalServiceImpl extends ServiceImpl<UavInspectio
         for (UavInspectionSample row : rows) {
             sampleMapper.insert(row);
         }
-        return new UavInspectionUploadResult(session.getId(), rows.size());
+
+        UavInspectionGraphArchiveService graphArchiveService = graphArchiveServiceProvider.getIfAvailable();
+        UavInspectionGraphArchiveService.GraphArchiveResult graphResult = graphArchiveService == null
+                ? new UavInspectionGraphArchiveService.GraphArchiveResult(false, "Neo4j 归档未启用")
+                : graphArchiveService.archive(session, rows);
+        UavInspectionRagArchiveClient.ArchiveResult ragResult = ragArchiveClient.archive(session, rows);
+        return new UavInspectionUploadResult(
+                session.getId(),
+                rows.size(),
+                graphResult.success(),
+                graphResult.message(),
+                ragResult.success(),
+                ragResult.message(),
+                ragResult.docId(),
+                ragResult.chunkCount()
+        );
     }
 
     @Override

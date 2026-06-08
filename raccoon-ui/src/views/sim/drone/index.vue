@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import InspectionAgentFab from '@/components/sim/InspectionAgentFab.vue'
 import { AGENT_ACTIVE_DISPATCH_TASK_KEY, AGENT_ACTIVE_WORK_ORDER_KEY } from '@/api/agentPlanning'
 import { postDispatchToSimIframe, subscribeInspectionDispatchBroadcast } from '@/utils/inspectionBridge'
+import type { UavRouteDispatchPayload } from '@/api/drone'
 
 /**
  * 嵌入 raccoon-drone-sim（默认 http://127.0.0.1:3010）。
@@ -25,6 +26,12 @@ const goBack = () => {
 const iframeLoaded = ref(false)
 const loadTimeout = ref(false)
 const simIframeRef = ref<HTMLIFrameElement | null>(null)
+const agentFabRef = ref<{
+  prepareExternalMission: (
+    payload: UavRouteDispatchPayload,
+    options?: { workOrderId?: number; dispatchTaskId?: string }
+  ) => void
+} | null>(null)
 let timer: ReturnType<typeof setTimeout> | undefined
 
 const onIframeLoad = () => {
@@ -70,6 +77,10 @@ onMounted(() => {
       dispatchTaskId: msg.dispatchTaskId
     })
     if (ok) {
+      agentFabRef.value?.prepareExternalMission(msg.dispatch, {
+        workOrderId: msg.workOrderId,
+        dispatchTaskId: msg.dispatchTaskId
+      })
       ElMessage.success('审核通过，无人机开始巡检')
     } else {
       ElMessage.error('无法向仿真窗口下发航线')
@@ -120,7 +131,7 @@ onBeforeUnmount(() => {
     />
 
     <!-- 右下角悬浮：NLP 巡检任务 Agent → 仿真无人机 -->
-    <InspectionAgentFab :sim-iframe="simIframeRef" />
+    <InspectionAgentFab ref="agentFabRef" :sim-iframe="simIframeRef" />
   </div>
 </template>
 

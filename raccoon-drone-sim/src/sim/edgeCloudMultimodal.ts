@@ -1,4 +1,4 @@
-import { postUavInspectionMultimodal, type UavInspectionUploadBody } from '@/api/uavInspection'
+import { postUavInspectionMultimodal, type UavInspectionUploadBody, type UavInspectionUploadResult } from '@/api/uavInspection'
 import type { MissionReport } from './types'
 import type { MultimodalMissionContext, MultimodalSample } from './multimodalTypes'
 
@@ -18,7 +18,7 @@ function round6(n: number) {
 export async function uploadMultimodalMissionResult(
   report: MissionReport,
   ctx: MultimodalMissionContext
-): Promise<{ sessionId: number; sampleCount: number }> {
+): Promise<UavInspectionUploadResult> {
   const samples = report.multimodalSamples ?? []
   if (!samples.length) {
     throw new Error('无多模态采样数据可上报')

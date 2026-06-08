@@ -652,7 +652,13 @@ async function finalizeMissionReport(r: MissionReport): Promise<MissionReport> {
     taskStatus.value = '正在上报多模态巡检结果至 iot-data…'
     const res = await uploadMultimodalMissionResult(report, ctx)
     report.multimodalUpload = res
-    ElMessage.success(`多模态数据已入库（session ${res.sessionId}，${res.sampleCount} 条）`)
+    if (res.neo4jSynced === false || res.milvusSynced === false) {
+      ElMessage.warning(
+        `多模态数据已入库 MySQL，但知识库归档未完整完成：Neo4j=${res.neo4jMessage ?? '已完成'}；Milvus=${res.milvusMessage ?? '已完成'}`
+      )
+    } else {
+      ElMessage.success(`多模态数据已入库（session ${res.sessionId}，${res.sampleCount} 条，Neo4j/Milvus 已归档）`)
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     report.multimodalUpload = { error: msg }
@@ -1765,6 +1771,20 @@ function try65535Demo() {
           <el-descriptions-item label="云端入库">
             <span v-if="lastReport.multimodalUpload && 'sessionId' in lastReport.multimodalUpload">
               session {{ lastReport.multimodalUpload.sessionId }}（{{ lastReport.multimodalUpload.sampleCount }} 条）
+              <el-tag
+                size="small"
+                class="ml-2"
+                :type="lastReport.multimodalUpload.neo4jSynced === false ? 'warning' : 'success'"
+              >
+                {{ lastReport.multimodalUpload.neo4jSynced === false ? 'Neo4j 未归档' : 'Neo4j 已归档' }}
+              </el-tag>
+              <el-tag
+                size="small"
+                class="ml-2"
+                :type="lastReport.multimodalUpload.milvusSynced === false ? 'warning' : 'success'"
+              >
+                {{ lastReport.multimodalUpload.milvusSynced === false ? 'Milvus 未归档' : 'Milvus 已归档' }}
+              </el-tag>
             </span>
             <span v-else-if="lastReport.multimodalUpload && 'error' in lastReport.multimodalUpload" class="text-amber-600">
               {{ lastReport.multimodalUpload.error }}

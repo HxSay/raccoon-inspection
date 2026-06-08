@@ -70,6 +70,7 @@ const menuTree: MenuNode[] = [
       { path: '/drone/field-device', title: '现场设备管理', icon: 'Place' },
       { path: '/drone/robot-manage', title: '巡检机器人管理', icon: 'Cpu' },
       { path: '/drone/inspection-data', title: '巡检数据', icon: 'DataLine' },
+      { path: '/drone/close-loop', title: '任务闭环管理', icon: 'CircleCheck' },
       { path: '/drone/fault-grade', title: '故障分级处理', icon: 'Warning' }
     ]
   },

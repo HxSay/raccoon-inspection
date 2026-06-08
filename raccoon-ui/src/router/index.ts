@@ -132,6 +132,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '故障分级处理', icon: 'Warning' }
       },
       {
+        path: '/drone/close-loop',
+        name: 'DroneCloseLoop',
+        component: () => import('@/views/drone/close-loop/index.vue'),
+        meta: { title: '任务闭环管理', icon: 'CircleCheck' }
+      },
+      {
         path: '/ai/ollama-test',
         name: 'OllamaTest',
         component: () => import('@/views/ai/ollama-test/index.vue'),
